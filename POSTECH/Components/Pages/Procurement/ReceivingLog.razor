@@ -1,0 +1,475 @@
+﻿@page "/procurement/receiving"
+@using TCZPOS.Components.Models
+@inject OrderServices orderServices
+@inject AlertServices alertServices
+@inject NavigationManager nav
+@inject IFileSaver FileSaver
+@using PdfSharpCore.Pdf;
+@using CommunityToolkit.Maui.Storage
+@using PdfSharpCore.Drawing;
+@inject FileLauncherExt FileLauncher
+
+<div class="flex h-screen w-full flex-col overflow-hidden font-sans text-white bg-[#0F172A]">
+    @* Header - Matching PO Design *@
+    <div class="flex flex-col bg-[#1A252F] p-4 shadow-xl lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+        <div class="flex items-center gap-3 pb-3 lg:pb-0">
+            <h2 class="text-xl font-bold text-white uppercase tracking-tight">Receiving <span class="text-orange-500">History</span></h2>
+        </div>
+        
+        <div class="flex items-center justify-between gap-3 lg:flex-none lg:justify-end">
+            <span class="rounded border border-orange-500/20 bg-orange-500/10 px-2 py-1 text-xs text-orange-500">
+                Total Received
+            </span>
+            <span class="text-3xl font-black text-orange-500">@(_orders.Count(x => x.Status == "Completed"))</span>
+        </div>
+    </div>
+
+    @* Filter Bar - Matching PO Design *@
+    <div class="flex flex-col border-b bg-white">
+        <div class="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+            <div class="flex flex-1 max-w-md overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-orange-500 focus-within:ring-1 focus-within:ring-orange-500/20">
+                <input type="text" @bind="SearchTerm" @bind:event="oninput"
+                       class="w-full text-slate-800 px-4 py-2 text-sm font-medium outline-none"
+                       placeholder="earch history (PO# or Vendor)..." />
+                <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                    <i class="fas fa-search text-xs"></i>
+                </div>
+            </div>
+           
+        </div>
+
+        @* Index Bar *@
+        <div class="flex items-center gap-1 border-t border-slate-200 bg-white px-4 py-1.5">
+            <span class="mr-2 text-[9px] font-black uppercase tracking-tighter text-slate-400">Vendor Index:</span>
+            <div class="flex flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar">
+                <button @onclick='() => SetLetter("All")'
+                        class="px-2 py-1 text-[10px] font-bold @(_selectedLetter == "All" ? "text-orange-600 underline" : "text-slate-400 hover:text-slate-900")">
+                    All
+                </button>
+                @foreach (var letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                {
+                    var l = letter.ToString();
+                    <button @onclick="() => SetLetter(l)"
+                            class="min-w-[24px] px-1 py-1 text-[10px] font-bold transition-colors @(_selectedLetter == l ? "rounded bg-orange-100 text-orange-700" : "text-slate-400 hover:text-slate-900")">
+                        @l
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Table Section *@
+    <div class="flex-1 overflow-auto bg-white text-slate-800">
+        <GenericTable TItem="PurchaseOrderModels"
+                      Items="PagedData.ToList()"
+                      TableTitle="Inventory Receiving Records"
+                      TotalCount="FilteredData.Count()"
+                      PageSize="_pageSize"
+                      CurrentPage="_currentPage"
+                      OnPageChanged="(p) => _currentPage = p">
+            <TableHeader>
+                @* --- MOBILE HEADER --- *@
+                <th class="md:hidden px-4 py-3 text-left text-[10px] uppercase font-black tracking-widest text-slate-400">
+                    Receiving Details
+                </th>
+
+                @* --- DESKTOP HEADERS --- *@
+                <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400 text-left">PO Number</th>
+                <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400 text-left">Vendor</th>
+                <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400 text-left">Date Received</th>
+                <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400 text-left">Total Cost</th>
+                <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400 text-right">Actions</th>
+            </TableHeader>
+
+            <RowTemplate Context="po">
+                @* --- DESKTOP ROW --- *@
+                <td class="hidden md:table-cell px-6 py-4 font-bold text-slate-700">@po.Item.OrderNumber</td>
+                <td class="hidden md:table-cell px-6 py-4 text-slate-600">@po.Item.VendorName</td>
+                <td class="hidden md:table-cell px-6 py-4 text-xs text-slate-500">@po.Item.OrderDate.ToString("MMM dd, yyyy")</td>
+                <td class="hidden md:table-cell px-6 py-4 text-orange-600 font-bold">₱ @po.Item.TotalAmount.ToString("N2")</td>
+                <td class="hidden md:table-cell px-6 py-4 text-right">
+                    <div class="flex items-center justify-end gap-3">
+                        <button @onclick="() => PrintOrder(po.Item)" class="text-slate-400 hover:text-blue-600 transition-colors">
+                            <i class="fas fa-print"></i>
+                        </button>
+                        <button @onclick="() => PreviewPO(po.Item)" class="text-slate-400 hover:text-orange-500 transition-colors">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                </td>
+
+                @* --- MOBILE VIEW (Card Layout) --- *@
+                <td colspan="5" class="md:hidden p-3 border-b-4 border-slate-100 bg-white">
+                    <div class="flex flex-col gap-4">
+                        @* Header: PO & Date *@
+                        <div class="flex justify-between items-center py-2 px-3 bg-slate-50 rounded-lg border border-slate-100">
+                            <div>
+                                <p class="text-[9px] uppercase font-bold text-slate-400 tracking-wider leading-none mb-1">Received On</p>
+                                <span class="text-[10px] font-black text-slate-600 uppercase">
+                                    @po.Item.OrderDate.ToString("MMM dd, yyyy")
+                                </span>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-[9px] uppercase font-bold text-slate-400 tracking-wider leading-none mb-1">PO Reference</p>
+                                <p class="text-xs font-mono font-bold text-orange-600 uppercase">@po.Item.OrderNumber</p>
+                            </div>
+                        </div>
+
+                        @* Vendor and Amount *@
+                        <div class="flex justify-between items-start px-1">
+                            <div class="flex flex-col gap-1">
+                                <p class="text-[9px] uppercase font-bold text-slate-400 tracking-wider leading-none">Supplier</p>
+                                <h4 class="font-black text-slate-900 text-sm uppercase tracking-tight">
+                                    @po.Item.VendorName
+                                </h4>
+                            </div>
+                            <div class="text-right flex flex-col items-end">
+                                <div class="text-[10px] text-slate-400 uppercase font-black mb-1">Total Cost</div>
+                                <span class="text-lg font-black font-mono text-slate-900">
+                                    ₱@po.Item.TotalAmount.ToString("N2")
+                                </span>
+                            </div>
+                        </div>
+
+                        @* Actions Footer *@
+                        <div class="flex justify-between items-center pt-2 border-t border-slate-50">
+                            <button @onclick="() => PrintOrder(po.Item)"
+                                    class="flex items-center justify-center w-10 h-10 bg-blue-50 text-blue-600 rounded-full active:scale-95 transition-all">
+                                <i class="fas fa-print"></i>
+                            </button>
+                    
+                            <button @onclick="() => PreviewPO(po.Item)"
+                                    class="flex items-center justify-center px-6 h-10 bg-orange-50 text-orange-600 rounded-full font-bold text-xs uppercase gap-2 active:scale-95 transition-all border border-orange-100">
+                                <i class="fas fa-eye"></i>
+                                View Record
+                            </button>
+                        </div>
+                    </div>
+                </td>
+            </RowTemplate>
+        </GenericTable>
+    </div>
+</div>
+@if (_showDetailsModal && _selectedOrder != null)
+{
+    <Modal IsVisible="_showDetailsModal"
+           Title="Purchase Order Details"
+           ShowFooter="false"
+           customCss="!rounded-br-[15px] !rounded-bl-[15px]"
+           OnClose="() => _showDetailsModal = false">
+        <ChildContent>
+            <div class="flex flex-col gap-4 p-5 font-sans text-slate-800 bg-white min-h-[400px]">
+                
+                @* Header Section *@
+                <div class="flex justify-between items-start border-b border-dashed border-slate-200 pb-4">
+                    <div>
+                        <h3 class="text-[10px] font-black uppercase text-slate-400 tracking-widest">PO Number</h3>
+                        <p class="text-lg font-mono font-bold text-orange-600">@_selectedOrder.OrderNumber</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="@(_selectedOrder.Status == "Pending" ? "bg-yellow-100 text-yellow-700" : "bg-emerald-100 text-emerald-700") px-3 py-1 rounded-full text-[10px] font-black uppercase">
+                            @_selectedOrder.Status
+                        </span>
+                        <p class="text-[10px] text-slate-400 mt-1 font-mono uppercase">@_selectedOrder.OrderDate.ToString("MMM dd, yyyy hh:mm tt")</p>
+                    </div>
+                </div>
+
+                @* Vendor Info *@
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <p class="text-[9px] font-black uppercase text-slate-400">Supplier</p>
+                    <p class="text-sm font-bold text-slate-700">@_selectedOrder.VendorName</p>
+                </div>
+
+                @* Items List *@
+                <div>
+                    <p class="text-[10px] font-black uppercase text-slate-400 mb-3 tracking-widest">Items Ordered</p>
+                    <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
+                        @if (_selectedOrder.Items != null && _selectedOrder.Items.Any())
+                        {
+                            @foreach (var item in _selectedOrder.Items)
+                            {
+                                <div class="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-full shadow-sm">
+                                    <span class="flex h-5 min-w-[1.25rem] px-1 shrink-0 items-center justify-center rounded-full bg-slate-800 text-[9px] font-black text-white">
+                                        @item.QuantityOrdered
+                                    </span>
+                    
+                                    <span class="text-xs font-bold text-slate-700 whitespace-nowrap">@item.ProductName</span>
+                    
+                                    <div class="flex items-center gap-1.5 ml-1 pl-2 border-l border-slate-200">
+                                        <span class="text-[9px] font-medium text-slate-400">
+                                            @@ ₱@item.UnitCost.ToString("N2")
+                                        </span>
+                                        <i class="fas fa-arrow-right text-[8px] text-slate-300"></i>
+                                        <span class="font-mono text-[11px] font-black text-orange-600">
+                                            ₱@item.SubTotal.ToString("N2")
+                                        </span>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                @* Totals Summary *@
+                <div class="mt-auto pt-4 border-t-2 border-slate-100">
+                    <div class="flex justify-between text-sm text-slate-500 font-medium">
+                        <span>Grand Total</span>
+                        <span>₱@_selectedOrder.TotalAmount.ToString("N2")</span>
+                    </div>
+                    <div class="flex justify-between text-lg font-black text-slate-900 pt-2">
+                        <span>TOTAL AMOUNT</span>
+                        <span class="text-orange-600">₱@_selectedOrder.TotalAmount.ToString("N2")</span>
+                    </div>
+
+                    @if (_selectedOrder.Status == "Completed")
+                    {
+                        <div class="mt-3 flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 p-2 rounded-lg border border-emerald-100">
+                            <i class="fas fa-check-circle text-xs"></i>
+                            <span class="text-[9px] font-black uppercase tracking-wider">Inventory has been updated</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+
+
+@if (_showPrintModal && _orderToPrint != null)
+{
+    <Modal IsVisible="_showPrintModal"
+           Title="Print Receiving Record"
+           ShowFooter="false"
+           customCss="!rounded-br-[15px] !rounded-bl-[15px]"
+           OnClose="() => _showPrintModal = false">
+        <ChildContent>
+            <div class="p-6 text-center">
+                <div class="mb-6">
+                    <i class="fas fa-print text-5xl text-slate-200"></i>
+                    <h3 class="mt-4 text-lg font-bold text-slate-800">Select Print Format</h3>
+                    <p class="text-sm text-slate-500">PO: @_orderToPrint.OrderNumber</p>
+                </div>
+
+                <div class="grid grid-cols-1 gap-3">
+                    @* Option 1: Thermal Printer (ESCPOS) *@
+                    <button @onclick="GenerateThermalReceipt"
+                            class="flex items-center justify-between p-4 border rounded-xl hover:bg-orange-50 hover:border-orange-200 transition-all group">
+                        <div class="flex items-center gap-3 text-left">
+                            <i class="fas fa-receipt text-orange-500"></i>
+                            <div>
+                                <p class="font-bold text-slate-700">Thermal Receipt</p>
+                                <p class="text-[10px] text-slate-500 uppercase">Direct to ESC/POS Printer</p>
+                            </div>
+                        </div>
+                        <i class="fas fa-chevron-right text-slate-300 group-hover:text-orange-500"></i>
+                    </button>
+
+                    @* Option 2: PDF Document *@
+                    <button @onclick="GeneratePDFReport"
+                            class="flex items-center justify-between p-4 border rounded-xl hover:bg-blue-50 hover:border-blue-200 transition-all group">
+                        <div class="flex items-center gap-3 text-left">
+                            <i class="fas fa-file-pdf text-red-500"></i>
+                            <div>
+                                <p class="font-bold text-slate-700">PDF Document</p>
+                                <p class="text-[10px] text-slate-500 uppercase">Save or Share Report</p>
+                            </div>
+                        </div>
+                        <i class="fas fa-chevron-right text-slate-300 group-hover:text-blue-500"></i>
+                    </button>
+                </div>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+@code {
+    private List<PurchaseOrderModels> _orders = new();
+    private string _searchTerm = "";
+    private string _selectedLetter = "All";
+    private int _currentPage = 1;
+    private int _pageSize = 10;
+    private bool _showDetailsModal, _showPrintModal;
+    private PurchaseOrderModels? _selectedOrder;
+    private PurchaseOrderModels? _orderToPrint;
+   
+    private string SearchTerm
+    {
+        get => _searchTerm;
+        set { _searchTerm = value; _currentPage = 1; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _orders = await orderServices.GetAllOrdersAsync();
+    }
+
+    private void SetLetter(string letter) { _selectedLetter = letter; _currentPage = 1; }
+
+    // This logic ensures ONLY "Completed" orders show in the Receiving Log
+    private IEnumerable<PurchaseOrderModels> FilteredData => _orders
+        .Where(x => x.Status == "Completed")
+        .Where(x => string.IsNullOrWhiteSpace(_searchTerm)
+                    || x.OrderNumber.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)
+                    || x.VendorName.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))
+        .Where(x => _selectedLetter == "All"
+                    || x.VendorName.StartsWith(_selectedLetter, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(x => x.OrderDate);
+
+    private IEnumerable<PurchaseOrderModels> PagedData => FilteredData.Skip((_currentPage - 1) * _pageSize).Take(_pageSize);
+
+    private async Task PreviewPO(PurchaseOrderModels po)
+    {
+        _selectedOrder = await orderServices.GetOrderByIdAsync(po.Id);
+        _showDetailsModal = _selectedOrder != null;
+    }
+
+    private void PrintOrder(PurchaseOrderModels order)
+    {
+        alertServices.Notify($"Generating report for {order.OrderNumber}...", AlertTypeList.Info);
+        _orderToPrint = order;
+        _showPrintModal = true;
+    }
+    private async Task GenerateThermalReceipt()
+    {
+        // try
+        // {
+        //     if (_orderToPrint == null) return;
+
+        //     Configuration - Replace with your actual Printer IP or COM port
+        //     var printer = new ESCPOS_NET.NetworkPrinter(ipAddress: "192.168.1.100", port: 9100);
+        //     var e = new ESCPOS_NET.Emitters.EPSON();
+
+        //     Start building the byte array
+        //     var list = new List<byte[]>();
+
+        //     list.Add(e.CenterAlign());
+        //     list.Add(e.SetStyles(ESCPOS_NET.Emitters.PrintStyle.FontB | ESCPOS_NET.Emitters.PrintStyle.DoubleHeight));
+        //     list.Add(e.PrintLine("RECEIVING LOG"));
+        //     list.Add(e.SetStyles(ESCPOS_NET.Emitters.PrintStyle.None));
+        
+        //     list.Add(e.PrintLine("--------------------------------"));
+        //     list.Add(e.PrintLine($"PO: {_orderToPrint.OrderNumber}"));
+        //     list.Add(e.PrintLine($"DATE: {_orderToPrint.OrderDate:MMM dd, yyyy HH:mm}"));
+        //     list.Add(e.PrintLine($"VENDOR: {_orderToPrint.VendorName.ToUpper()}"));
+        //     list.Add(e.PrintLine("--------------------------------"));
+        
+        //     list.Add(e.LeftAlign());
+        //     Table Header
+        //     list.Add(e.PrintLine("QTY  DESCRIPTION          TOTAL "));
+
+        //     if (_orderToPrint.Items != null)
+        //     {
+        //         foreach (var item in _orderToPrint.Items)
+        //         {
+        //             Format: "999  LongProductName...  9,999.00"
+        //             string qty = item.QuantityOrdered.ToString().PadRight(5);
+                
+        //             Truncate name to 18 chars to keep columns aligned
+        //             string name = item.ProductName?.Length > 18
+        //                 ? item.ProductName.Substring(0, 15) + "..."
+        //                 : (item.ProductName ?? "Item").PadRight(18);
+                
+        //             string price = item.SubTotal.ToString("N2").PadLeft(9);
+                
+        //             list.Add(e.PrintLine($"{qty}{name}{price}"));
+        //         }
+        //     }
+
+        //     list.Add(e.PrintLine("--------------------------------"));
+        //     list.Add(e.RightAlign());
+        //     list.Add(e.SetStyles(ESCPOS_NET.Emitters.PrintStyle.Bold));
+        //     list.Add(e.PrintLine($"GRAND TOTAL: PHP {_orderToPrint.TotalAmount:N2}"));
+        //     list.Add(e.SetStyles(ESCPOS_NET.Emitters.PrintStyle.None));
+        
+        //     list.Add(e.CenterAlign());
+        //     list.Add(e.PrintLine("\nRecorded in Inventory System\n"));
+        //     list.Add(e.FullCut());
+
+        //     Flatten the list of byte arrays and write to printer
+        //     byte[] command = list.SelectMany(x => x).ToArray();
+        //     printer.Write(command);
+        
+        //     _showPrintModal = false;
+        //     alertServices.Notify("Sent to printer", AlertTypeList.Success);
+        // }
+        // catch (Exception ex)
+        // {
+        //     alertServices.Notify($"Printer Error: {ex.Message}", AlertTypeList.Error);
+        // }
+    }
+    private async Task GeneratePDFReport()
+    {
+        try
+        {
+            if (_orderToPrint == null) return;
+
+            using var document = new PdfDocument();
+            var page = document.AddPage();
+            var gfx = XGraphics.FromPdfPage(page);
+        
+            // Define Fonts
+            var fontTitle = new XFont("Arial", 16, XFontStyle.Bold);
+            var fontHeader = new XFont("Arial", 10, XFontStyle.Bold);
+            var fontRegular = new XFont("Arial", 10, XFontStyle.Regular);
+            var fontSmall = new XFont("Arial", 8, XFontStyle.Regular);
+
+            // 1. Header Section
+            gfx.DrawString("INVENTORY RECEIVING REPORT", fontTitle, XBrushes.Black, new XRect(0, 40, page.Width, 20), XStringFormats.TopCenter);
+        
+            int currentY = 80;
+            gfx.DrawString($"PO Reference: {_orderToPrint.OrderNumber}", fontRegular, XBrushes.Black, 50, currentY);
+            gfx.DrawString($"Date: {_orderToPrint.OrderDate:MMM dd, yyyy}", fontRegular, XBrushes.Black, 400, currentY);
+        
+            currentY += 20;
+            gfx.DrawString($"Vendor: {_orderToPrint.VendorName}", fontRegular, XBrushes.Black, 50, currentY);
+
+            // 2. Items Table Header
+            currentY += 40;
+            gfx.DrawRectangle(XPens.SlateGray, XBrushes.GhostWhite, 50, currentY - 15, page.Width - 100, 20);
+            gfx.DrawString("Product Description", fontHeader, XBrushes.Black, 60, currentY);
+            gfx.DrawString("Qty", fontHeader, XBrushes.Black, 300, currentY);
+            gfx.DrawString("Unit Cost", fontHeader, XBrushes.Black, 360, currentY);
+            gfx.DrawString("Subtotal", fontHeader, XBrushes.Black, 450, currentY);
+
+            // 3. Draw Items
+            currentY += 20;
+            if (_orderToPrint.Items != null)
+            {
+                foreach (var item in _orderToPrint.Items)
+                {
+                    // Basic check for page overflow (optional: simplified for now)
+                    gfx.DrawString(item.ProductName ?? "Unknown Item", fontRegular, XBrushes.DarkSlateGray, 60, currentY);
+                    gfx.DrawString(item.QuantityOrdered.ToString(), fontRegular, XBrushes.Black, 300, currentY);
+                    gfx.DrawString($"P {item.UnitCost:N2}", fontRegular, XBrushes.Black, 360, currentY);
+                    gfx.DrawString($"P {item.SubTotal:N2}", fontRegular, XBrushes.Black, 450, currentY);
+                
+                    currentY += 15;
+                    // Draw a very light separator line
+                    gfx.DrawLine(XPens.LightGray, 50, currentY - 5, page.Width - 50, currentY - 5);
+                    currentY += 5;
+                }
+            }
+
+            // 4. Summary Totals
+            currentY += 20;
+            gfx.DrawLine(XPens.Black, 350, currentY, page.Width - 50, currentY);
+            currentY += 20;
+            gfx.DrawString("TOTAL AMOUNT RECEIVED:", fontHeader, XBrushes.Black, 300, currentY);
+            gfx.DrawString($"PHP {_orderToPrint.TotalAmount:N2}", fontTitle, XBrushes.DarkOrange, 450, currentY);
+
+            // Save and Export
+            using var stream = new MemoryStream();
+            document.Save(stream, false);
+            var fileData = stream.ToArray();
+
+            var fileName = $"Receiving_{_orderToPrint.OrderNumber}_{DateTime.Now:yyyyMMdd}.pdf";
+            await FileSaver.SaveAsync(fileName, new MemoryStream(fileData));
+        
+            _showPrintModal = false;
+            alertServices.Notify("PDF Generated Successfully", AlertTypeList.Success);
+        }
+        catch (Exception ex)
+        {
+            alertServices.Notify($"PDF Error: {ex.Message}", AlertTypeList.Error);
+        }
+    }
+}

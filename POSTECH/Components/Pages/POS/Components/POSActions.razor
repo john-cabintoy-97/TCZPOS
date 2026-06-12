@@ -1,0 +1,83 @@
+﻿@using TCZPOS.Components.Scanner;
+
+<div class="flex items-center gap-2">
+    @* Clickable Label to manually trigger focus *@
+    <button type="button"
+            @onclick="() => OnFocus.InvokeAsync()"
+            disabled="@(!IsActive)"
+            class="text-[10px] font-bold whitespace-nowrap uppercase transition-colors active:opacity-50
+        text-orange-500 md:text-slate-400 hover:text-orange-600">
+        [F8] Focus
+    </button>
+
+    <div class="flex w-full overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm
+        @(IsActive ? "focus-within:border-orange-500" : "bg-slate-100 opacity-60")">
+        
+        <input @ref="_inputRef"
+               type="text"
+               @bind="Value"
+               @bind:event="oninput"
+               @onkeyup="HandleKeyUp"
+               disabled="@(!IsActive)"
+               inputmode="none"
+               class="w-full bg-transparent px-3 py-2 text-sm outline-none placeholder:text-slate-400"
+               placeholder="@(IsActive ? "Scan Barcode Now..." : "Start transaction [F1]")" />
+
+        <ScannerButton Variant="ButtonVariant.IconOnly"
+                       Icon="fas fa-camera text-sm"
+                       IconBg="bg-orange-600"
+                       IsEnabled="@(IsActive)"
+                       class="h-full px-4 flex items-center bg-orange-600 justify-center hover:bg-orange-700 transition-colors"
+                       OnScanResult="HandleCameraResult" />
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool IsActive { get; set; }
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public EventCallback<string> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnFocus { get; set; }
+    private ElementReference _inputRef;
+
+    public async Task ReFocus()
+    {
+        if (IsActive)
+        {
+            await _inputRef.FocusAsync();
+        }
+    }
+
+    private async Task HandleKeyUp(KeyboardEventArgs e)
+    {
+        // Reliability: Enter key signals the hardware scanner is finished
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(Value))
+        {
+            var code = Value;
+            await ResetInput(); // Clear UI first for speed
+            await OnSubmit.InvokeAsync(code);
+        }
+    }
+
+    private async Task HandleCameraResult(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return;
+        
+        Value = code;
+        await ValueChanged.InvokeAsync(Value);
+        await ProcessDirectly(code);
+    }
+
+    private async Task ProcessDirectly(string code)
+    {
+        await OnSubmit.InvokeAsync(code);
+        await ResetInput();
+    }
+
+    private async Task ResetInput()
+    {
+        Value = "";
+        await ValueChanged.InvokeAsync("");
+        await ReFocus();
+    }
+}

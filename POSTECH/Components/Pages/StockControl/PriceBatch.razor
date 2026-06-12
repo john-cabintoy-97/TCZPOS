@@ -1,0 +1,338 @@
+﻿@page "/inventory/price-update"
+@using TCZPOS.Components.Modules.UX
+@using TCZPOS.Components.Modules
+@using TCZPOS.Components.Models
+@inject ProductServices productService
+@inject AlertServices alertService
+
+<div class="flex h-screen w-full flex-col overflow-hidden font-sans text-white">
+    @* HEADER SECTION *@
+    <div class=" flex flex-col bg-[#1A252F] p-4 shadow-xl lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+        <div class="flex items-center gap-3 pb-3 lg:pb-0">
+            <h2 class="text-xl font-bold text-white uppercase tracking-tight">Price <span class="text-orange-500">Batch Management</span></h2>
+        </div>
+        <div class="mb-3 h-px w-full bg-slate-800 lg:hidden"></div>
+        <div class="flex flex-row items-center justify-between lg:justify-end gap-4">
+    
+            <div class="sm:w-auto rounded border border-orange-500/20 bg-orange-500/10 px-3 py-2">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-wider leading-none">Queue</p>
+                <p class="text-xl font-black text-white font-mono mt-1">@_priceUpdateList.Count.ToString("D2")</p>
+            </div>
+
+            <div class="text-right">
+                <p class="text-[10px] font-black text-orange-400 uppercase tracking-wider leading-none">Avg Margin</p>
+                <p class="text-xl font-black text-orange-500 font-mono mt-1">@CalculateAverageMargin().ToString("N1")%</p>
+            </div>
+    
+        </div>
+    </div>
+
+  
+    @* FILTER & TABLE SECTION *@
+    <div class="flex flex-1 flex-col overflow-hidden bg-white text-slate-800">
+        @* COMPACT FILTER BAR *@
+        <div class="border-b bg-slate-50/50 px-3 py-2">
+            @* Bottom Row: Dates, Sort, and Tabs *@
+            <div class="flex flex-col gap-3">
+                <div class="flex flex-wrap items-center mt-3 gap-3">
+                    <div class="relative flex-1 min-w-[300px]">
+                        <label class="absolute -top-2 left-2 bg-white px-1 text-[9px] font-black text-slate-500 uppercase">Internal Remarks</label>
+                        <textarea @bind="_updateRemarks"
+                                  @bind:event="oninput"
+                                  class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs outline-none focus:border-orange-500 h-[42px] resize-none pt-3"
+                                  placeholder="e.g., Annual Price Adjustment, Supplier Hike..."></textarea>
+                    </div>
+
+                    <div class="hidden md:flex items-center gap-3 w-full sm:w-auto">
+                        <Button Variant="ButtonVariant.Sidebar"
+                                Icon="fas fa-plus-circle"
+                                IconBg="!h-auto !w-auto"
+                                OnClick="OpenProductSearch"
+                                Label="ADD PRODUCTS"
+                                class="flex-1 !justify-center !bg-orange-500 !text-white !rounded-full h-[45px]  shadow-md border-none  !font-black tracking-widest transition-transform active:scale-95" />
+                       
+                        @* DESKTOP BUTTON (Visible only on medium screens and up) *@
+                        <Button Variant="ButtonVariant.Sidebar"
+                                Icon="fas fa-cloud-upload-alt"
+                                IconBg="!h-auto !w-auto"
+                                Label="PRICE UPDATE"
+                                IsEnabled="@CanSave"
+                                OnClick="SavePriceUpdates"
+                                class="flex flex-1 !justify-center bg-slate-700 !rounded-full h-[45px] border-none !font-black tracking-widest transition-all" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* GENERIC TABLE INTEGRATION *@
+        <div class="flex-1 overflow-hidden mt-2">
+            <GenericTable @ref="_tableRef"
+                          TItem="ProductModels"
+                          ShowSelection="false"
+                          Items="_priceUpdateList"
+                          IsLoading="_isTableLoading"
+                          TotalCount="_priceUpdateList.Count"
+                          PageSize="10">
+                <TableHeader>
+                    @* Mobile Header Label *@
+                    <th class="md:hidden px-6 py-4 text-left text-[10px] font-black uppercase tracking-wider text-white border-b">
+                        Batch Items
+                    </th>
+                    @* Desktop Headers *@
+                    <th class="hidden md:table-cell px-6 py-4 text-left text-[10px] font-black uppercase tracking-wider text-white border-b">Item Details</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-right text-[10px] font-black uppercase tracking-wider text-white border-b">Costing (Old → New)</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-right text-[10px] font-black uppercase tracking-wider text-white border-b">SRP (Old → New)</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-center text-[10px] font-black uppercase tracking-wider text-white border-b">Projected Margin</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-center text-[10px] font-black uppercase tracking-wider text-white border-b">Action</th>
+                </TableHeader>
+                <RowTemplate Context="row">
+                    @* --- MOBILE VIEW CARD --- *@
+                    <td colspan="5" class="md:hidden p-0 border-b-4 border-slate-100 bg-white">
+                        <div class="flex flex-col gap-4 p-4">
+                            @* Product Identity *@
+                            <div class="flex justify-between items-start">
+                                <div class="flex flex-col">
+                                    <span class="font-black text-slate-800 uppercase text-sm leading-tight">@row.Item.Name</span>
+                                    <span class="text-[9px] font-bold text-slate-400 font-mono mt-1">@row.Item.Barcode</span>
+                                </div>
+                                <button @onclick="() => RemoveFromBatch(row.Item)"
+                                        class="h-8 w-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center">
+                                    <i class="fas fa-trash-alt text-xs"></i>
+                                </button>
+                            </div>
+
+                            @* Inputs Grid *@
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[9px] font-black text-slate-400 uppercase">Cost Price</label>
+                                    <input type="number" @bind="row.Item.CostPrice" @bind:event="oninput"
+                                           class="w-full font-mono font-bold border rounded bg-slate-50 p-2 text-xs focus:border-orange-500 outline-none" />
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[9px] font-black text-orange-400 uppercase">Selling Price</label>
+                                    <input type="number" @bind="row.Item.SellingPrice" @bind:event="oninput"
+                                           class="w-full font-mono font-black border-2 border-orange-100 rounded bg-orange-50/30 p-2 text-xs text-orange-600 focus:border-orange-500 outline-none" />
+                                </div>
+                            </div>
+
+                            @* Margin Status Bar *@
+                            @{
+                                decimal margin = row.Item.SellingPrice > 0
+                                    ? ((row.Item.SellingPrice - row.Item.CostPrice) / row.Item.SellingPrice) * 100
+                                    : 0;
+
+                                var (statusLabel, statusColor) = margin switch
+                                {
+                                    <= 0 => ("LOSS", "bg-red-600 text-white"),
+                                    < 10 => ("LOW MARGIN", "bg-orange-500 text-white"),
+                                    _ => ("HEALTHY MARGIN", "bg-emerald-500 text-white")
+                                };
+                            }
+                            <div class="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                <div class="flex flex-col">
+                                    <span class="text-[8px] font-black text-slate-400 uppercase">Est. Profit</span>
+                                    <span class="text-sm font-black text-slate-700">₱ @((row.Item.SellingPrice - row.Item.CostPrice).ToString("N2"))</span>
+                                </div>
+                                <div class="flex flex-col items-end">
+                                    <span class="px-2 py-0.5 rounded @statusColor text-[8px] font-black tracking-tighter mb-1">@statusLabel</span>
+                                    <span class="text-xs font-mono font-bold text-slate-600">@margin.ToString("N1")%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+
+                    @* --- DESKTOP VIEW COLUMNS --- *@
+                    <td class="hidden md:table-cell px-6 py-4 border-b border-slate-50">
+                        <div class="flex flex-col">
+                            <span class="font-black text-slate-800 uppercase text-sm leading-tight">@row.Item.Name</span>
+                            <span class="text-[9px] font-bold text-slate-400 font-mono mt-1">@row.Item.Barcode</span>
+                        </div>
+                    </td>
+
+                    <td class="hidden md:table-cell px-6 py-4 text-right border-b border-slate-50">
+                        <div class="flex flex-col items-end gap-1">
+                            <span class="text-[9px] font-bold text-slate-400 line-through">₱ @row.Item.CostPrice.ToString("N2")</span>
+                            <input type="number" @bind="row.Item.CostPrice" @bind:event="oninput"
+                                   class="w-24 text-right font-mono font-bold border rounded bg-slate-50 p-1 text-xs focus:border-orange-500 outline-none" />
+                        </div>
+                    </td>
+
+                    <td class="hidden md:table-cell px-6 py-4 text-right border-b border-slate-50">
+                        <div class="flex flex-col items-end gap-1">
+                            <span class="text-[9px] font-bold text-slate-400 line-through">₱ @row.Item.SellingPrice.ToString("N2")</span>
+                            <input type="number" @bind="row.Item.SellingPrice" @bind:event="oninput"
+                                   class="w-24 text-right font-mono font-black border-2 border-orange-100 rounded bg-orange-50/30 p-1 text-xs text-orange-600 focus:border-orange-500 outline-none" />
+                        </div>
+                    </td>
+
+                    <td class="hidden md:table-cell px-6 py-4 border-b border-slate-50 text-center">
+                        <div class="flex flex-col items-center">
+                            <span class="@(margin <= 0 ? "text-red-600 font-black animate-bounce" : margin < 10 ? "text-orange-500 font-bold" : "text-emerald-500 font-bold") text-[10px] tracking-widest uppercase">
+                                @(margin <= 0 ? "LOSS" : margin < 10 ? "LOW" : "GOOD")
+                            </span>
+                            <span class="text-xs font-mono text-slate-600">@margin.ToString("N1")%</span>
+                            <span class="text-[9px] font-bold text-slate-400">₱ @((row.Item.SellingPrice - row.Item.CostPrice).ToString("N2")) profit</span>
+                        </div>
+                    </td>
+
+                    <td class="hidden md:table-cell px-6 py-4 text-center border-b border-slate-50">
+                        <button @onclick="() => RemoveFromBatch(row.Item)"
+                                class="h-8 w-8 rounded-lg border border-slate-200 bg-red-50 text-red-500 hover:text-red-500 hover:bg-red-50 transition-all">
+                            <i class="fas fa-trash-alt text-xs"></i>
+                        </button>
+                    </td>
+            </RowTemplate>
+        </GenericTable>
+    </div>
+        <div class="md:hidden mb-5 px-2  mt-3 flex items-center gap-3 w-full sm:w-auto">
+            <Button Variant="ButtonVariant.Sidebar"
+                    Icon="fas fa-plus-circle"
+                    IconBg="!h-auto !w-auto"
+                    OnClick="OpenProductSearch"
+                    Label="PRODUCTS"
+                    class="flex-1 !justify-center !bg-orange-500 !text-white !rounded-full h-[45px]  shadow-md border-none  !font-black tracking-widest transition-transform active:scale-95" />
+            @* MOBILE BUTTON (Visible only on small screens) *@
+            <Button Variant="ButtonVariant.Sidebar"
+                    Icon="fas fa-cloud-upload-alt"
+                    Label="UPDATE"
+                    IconBg="!h-auto !w-auto"
+                    IsEnabled="@CanSave"
+                    OnClick="SavePriceUpdates"
+                    class="md:hidden flex-1 !justify-center bg-slate-700 !rounded-full h-[45px] border-none !font-black tracking-widest transition-all" />
+
+        </div>
+        
+</div>
+</div>
+
+
+@if (_isSearchModalVisible)
+{
+    <Modal IsVisible="_isSearchModalVisible" customCss="rounded-br-[15px] rounded-bl-[15px]"
+           ShowFooter="false" Title="Batch Selection" OnClose="() => _isSearchModalVisible = false">
+        <ChildContent>
+            <div class="p-3 bg-slate-50 border-b">
+                <input type="text" @bind="ProductSearchTerm" @bind:event="oninput"
+                       class="w-full border rounded-xl text-slate-500 px-4 py-2 text-sm focus:ring-2 focus:ring-orange-500/20 outline-none"
+                       placeholder="Search product name or barcode..." />
+            </div>
+            <div class="h-[50vh] overflow-y-auto">
+                @foreach (var prod in FilteredProducts)
+                {
+                    <div class="flex justify-between items-center p-4 border-b hover:bg-orange-50 cursor-pointer transition-colors group"
+                         @onclick="() => AddToBatch(prod)">
+                        <div>
+                            <p class="font-black text-slate-700 uppercase text-xs group-hover:text-orange-600">@prod.Name</p>
+                            <p class="text-[10px] text-slate-400 font-mono">Current SRP: ₱ @prod.SellingPrice.ToString("N2")</p>
+                        </div>
+                        <i class="fas fa-plus-circle text-slate-300 group-hover:text-orange-500 transition-colors"></i>
+                    </div>
+                }
+            </div>
+        </ChildContent>
+    </Modal>
+}
+
+@code {
+    private bool _isTableLoading = false;
+    private bool _isSearchModalVisible = false;
+    private string _productSearchTerm = "";
+    private string _updateRemarks = "";
+    private List<ProductModels> _priceUpdateList = new();
+    private List<ProductModels> _masterProducts = new();
+    private GenericTable<ProductModels> _tableRef = default!;
+
+    private bool CanSave => _priceUpdateList.Any() && !string.IsNullOrWhiteSpace(_updateRemarks) && _priceUpdateList.All(x => x.SellingPrice > 0);
+
+    private string ProductSearchTerm
+    {
+        get => _productSearchTerm;
+        set { _productSearchTerm = value; StateHasChanged(); }
+    }
+
+    private IEnumerable<ProductModels> FilteredProducts =>
+        _masterProducts.Where(p => string.IsNullOrWhiteSpace(ProductSearchTerm) ||
+                                   p.Name.Contains(ProductSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                                   p.Barcode.Contains(ProductSearchTerm));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        await productService.LoadProductsAsync();
+        _masterProducts = productService.ProductDisplayList.Select(x => x.Product).ToList();
+    }
+
+    private decimal CalculateAverageMargin()
+    {
+        if (!_priceUpdateList.Any()) return 0m;
+    
+        return _priceUpdateList.Average(x =>
+            x.SellingPrice > 0
+            ? ((x.SellingPrice - x.CostPrice) / x.SellingPrice) * 100
+            : 0m);
+    }
+
+    private void OpenProductSearch() => _isSearchModalVisible = true;
+
+    private void AddToBatch(ProductModels product)
+    {
+        if (!_priceUpdateList.Any(x => x.Id == product.Id))
+        {
+            _priceUpdateList.Add(new ProductModels
+            {
+                Id = product.Id,
+                SecureId = product.SecureId,
+                Pcode = product.Pcode,
+                Name = product.Name,
+                Barcode = product.Barcode,
+                CategoryId = product.CategoryId,
+                BrandId = product.BrandId,
+                VendorId = product.VendorId,
+                StockLevel = product.StockLevel,
+                ReorderPoint = product.ReorderPoint,
+                Unit = product.Unit,
+                HasExpiry = product.HasExpiry,
+                ExpiryDate = product.ExpiryDate,
+                IsActive = product.IsActive,
+                CreatedAt = product.CreatedAt,
+                CostPrice = product.CostPrice,
+                SellingPrice = product.SellingPrice,
+                UpdatedAt = DateTime.Now
+            });
+        }
+        _isSearchModalVisible = false;
+    }
+
+    private void RemoveFromBatch(ProductModels item) => _priceUpdateList.Remove(item);
+
+    private async Task SavePriceUpdates()
+    {
+        if (!CanSave) return;
+
+        _isTableLoading = true;
+        try
+        {
+            bool success = await productService.UpdateBatchPricesAsync(_priceUpdateList);
+        
+            if (success)
+            {
+                _priceUpdateList.Clear();
+                _updateRemarks = ""; 
+                await LoadData();    
+                alertService.Success("Price updates saved successfully!");
+            }
+        }
+        catch (Exception ex)
+        {
+            alertService.Error(ex.Message);
+        }
+        finally
+        {
+            _isTableLoading = false;
+        }
+    }
+}

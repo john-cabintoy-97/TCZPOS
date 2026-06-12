@@ -1,0 +1,36 @@
+﻿@page "/modules/qrcode"
+@using TCZPOS.Components.Services.Hardware
+
+<div class="@ContainerClass d-flex justify-content-center align-items-center">
+    @if (!string.IsNullOrEmpty(_qrImage))
+    {
+        <img src="@_qrImage" class="img-fluid w-100 @ImageClass" style="image-rendering: pixelated;" alt="QR Code" />
+    }
+    else
+    {
+        <div class="spinner-border text-warning" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Data { get; set; } 
+    [Parameter] public string ContainerClass { get; set; } = "p-2 bg-white rounded";
+    [Parameter] public string ImageClass { get; set; } = "img-fluid";
+    
+    private string? _qrImage;
+
+    // This triggers whenever the 'Data' parameter changes
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrEmpty(Data))
+        {
+            _qrImage = QRCodeServices.GenerateBase64QR(Data);
+        }
+        else
+        {
+            _qrImage = null;
+        }
+    }
+}

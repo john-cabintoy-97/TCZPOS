@@ -1,0 +1,51 @@
+﻿<div class="group relative flex items-center justify-center">
+    @* Circular Container *@
+    <div class="flex @GetSizeClass() items-center justify-center rounded-full border-2 border-orange-500/40 bg-orange-500/10 shadow-[0_0_15px_rgba(234,88,12,0.1)] transition-all group-hover:scale-105 group-hover:border-orange-500">
+        
+        @* Initials Text *@
+        <span class="@GetTextSizeClass() font-black tracking-tighter text-orange-500 uppercase">
+            @GetInitials(Username!)
+        </span>
+
+    </div>
+
+    @if (ShowStatus)
+    {
+        <span class="absolute right-0 bottom-0 h-3 w-3 animate-pulse rounded-full border-2 border-[#0d1117] bg-green-500"></span>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Username { get; set; }
+    [Parameter] public bool ShowStatus { get; set; } = true;
+    [Parameter] public string Size { get; set; } = "md"; // sm, md, lg
+
+    private string GetInitials(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "??";
+
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+    
+        if (parts.Length >= 2)
+        {
+            // Returns first letter of first word and first letter of LAST word
+            return $"{parts[0][0]}{parts[^1][0]}".ToUpper();
+        }
+    
+        return name.Length >= 2 ? name.Substring(0, 2).ToUpper() : name.ToUpper();
+    }
+
+    private string GetSizeClass() => Size switch
+    {
+        "sm" => "h-8 w-8",
+        "lg" => "h-16 w-16",
+        _ => "h-10 w-10" 
+    };
+
+    private string GetTextSizeClass() => Size switch
+    {
+        "sm" => "text-[10px]",
+        "lg" => "text-xl",
+        _ => "text-xs"
+    };
+}

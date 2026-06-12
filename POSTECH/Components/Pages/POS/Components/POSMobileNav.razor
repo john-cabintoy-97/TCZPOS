@@ -1,0 +1,84 @@
+﻿@using TCZPOS.Components.Guard.Interface
+@inject IGatekeeperService Gatekeeper
+
+<div class="grid grid-cols-7 gap-1 border-t border-slate-700 bg-[#1a252f] p-1 lg:hidden">
+
+    <button @onclick="OnNewTransaction"
+            class="flex flex-col items-center justify-center rounded-xl bg-orange-500 py-3 text-white transition-all active:scale-95 shadow-lg">
+        <i class="fas fa-plus text-lg"></i>
+        <span class="mt-1 text-[8px] font-bold uppercase">New</span>
+    </button>
+
+    <button @onclick="OnSearch"
+            disabled="@(!IsTransactionActive)"
+            class="flex flex-col items-center justify-center rounded-xl py-3 text-white transition-all
+        active:enabled:scale-95 disabled:opacity-25 disabled:grayscale
+        @(IsTransactionActive ? "bg-[#50a384] border-slate-600" : "transition-all disabled:opacity-40 disabled:grayscale enabled:active:scale-95")">
+        <i class="fas fa-search text-lg"></i>
+        <span class="mt-1 text-[8px] font-bold uppercase">Search</span>
+    </button>
+
+    <button @onclick="OnDiscount"
+            disabled="@(!(IsTransactionActive && HasItems && IsItemSelected))"
+            class="flex flex-col items-center justify-center rounded-xl py-3 text-white transition-all
+        active:enabled:scale-95 disabled:opacity-25 disabled:grayscale
+        @(IsTransactionActive && HasItems && IsItemSelected ? "bg-[#FFFF00] border-slate-600" : "transition-all disabled:opacity-40 disabled:grayscale enabled:active:scale-95")">
+        <i class="fas fa-tag text-lg"></i>
+        <span class="mt-1 text-[8px] font-bold uppercase">Discount</span>
+    </button>
+
+    <button @onclick="OnSettle"
+            disabled="@(!(IsTransactionActive && HasItems))"
+            class="flex flex-col items-center justify-center rounded-xl py-3 text-white transition-all
+        active:enabled:scale-95 disabled:opacity-25 disabled:grayscale
+        @(IsTransactionActive && HasItems ? "bg-slate-600 border border-slate-600" : "transition-all disabled:opacity-40 disabled:grayscale enabled:active:scale-95")">
+        <i class="fas fa-cash-register text-lg"></i>
+        <span class="mt-1 text-[8px] font-bold uppercase">Settle</span>
+    </button>
+    <button @onclick="OnHold"
+            class="relative flex flex-col items-center justify-center rounded-xl py-3 text-white transition-all
+        active:enabled:scale-95 disabled:opacity-25 disabled:grayscale
+        border border-slate-600 ">
+    
+        <i class="fas fa-pause-circle text-lg"></i>
+        <span class="mt-1 text-[8px] font-bold uppercase">Hold</span>
+        @if (HeldOrdersCount > 0)
+        {
+            <span class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-amber-500 text-slate-900 text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-md z-10 animate-pulse">
+                @HeldOrdersCount
+            </span>
+        }
+    </button>
+    <button @onclick="OnSales"
+            class="flex flex-col items-center justify-center rounded-xl py-3 text-white transition-all
+        active:enabled:scale-95 disabled:opacity-25 disabled:grayscale bg-[#56857D] border border-slate-600
+       ">
+        <i class="fas fa-calendar-check text-lg"></i>
+        <span class="mt-1 text-[8px] font-bold uppercase">Sales</span>
+    </button>
+
+    <button @onclick="OnExit"
+            class="flex flex-col items-center justify-center rounded-xl bg-red-500/10 py-3 text-red-500 border border-red-500/20 transition-all active:scale-95">
+        <i class="fas fa-arrow-left text-lg"></i>
+        <span class="mt-1 text-[8px] font-bold uppercase">
+        @(Gatekeeper.ActiveStaff?.Role == StaffRole.Cashier ? "Home" : "Home")
+    </span>
+    </button>
+
+</div>
+
+@code {
+    [Parameter] public bool IsTransactionActive { get; set; }
+    [Parameter] public bool HasItems { get; set; }
+    [Parameter] public bool IsItemSelected { get; set; }
+    [Parameter] public EventCallback OnHold { get; set; }
+    [Parameter] public int HeldOrdersCount { get; set; }
+    
+    [Parameter] public EventCallback OnNewTransaction { get; set; }
+    [Parameter] public EventCallback OnSearch { get; set; }
+    [Parameter] public EventCallback OnSales { get; set; }
+    [Parameter] public EventCallback OnDiscount { get; set; }
+    [Parameter] public EventCallback OnSettle { get; set; }
+    [Parameter] public EventCallback OnExit { get; set; }
+
+}

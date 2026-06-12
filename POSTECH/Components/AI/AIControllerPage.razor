@@ -1,0 +1,289 @@
+﻿@page "/aicontroller"
+@using Microsoft.AspNetCore.Authorization
+@using TCZPOS.Components.Modules.UX
+@using TCZPOS.Components.Scanner
+@using TCZPOS.Components.Services
+@using TCZPOS.Components.AI
+@inject NavigationManager Navigation
+@inject AlertServices Alert
+@inject ProductAIService aiService
+@attribute [Authorize(Roles = "Staff,Admin")]
+
+@* --- AI TEST SECTION --- *@
+<div class="mt-8 p-6 rounded-2xl border border-gray-200 bg-white shadow-sm">
+    <h2 class="text-xl font-bold mb-4 text-gray-800 flex items-center gap-2">
+        <i class="fas fa-robot text-orange-500"></i>
+        AI ShortName Tester
+    </h2>
+        
+    <div class="space-y-4">
+        @* Status Display *@
+        <div class="flex gap-4 flex-wrap text-sm">
+            <div class="px-3 py-1 rounded-full bg-gray-100">
+                📦 Products: <strong>@_productCount</strong>
+            </div>
+            <div class="px-3 py-1 rounded-full bg-gray-100">
+                🧠 Model: <strong>@(_isModelTrained ? "Trained ✅" : "Learning 🔄")</strong>
+            </div>
+            <div class="px-3 py-1 rounded-full bg-gray-100">
+                💾 Status: <strong>@_serviceStatus</strong>
+            </div>
+        </div>
+
+        @* Test Input *@
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">
+                Enter Product Name:
+            </label>
+            <div class="flex gap-3">
+                <input type="text"
+                       @bind="TestProductName"
+                       @bind:event="oninput"
+                       class="flex-1 px-4 text-amber-700 py-2 border border-gray-300 rounded-lg focus:ring-orange-500 focus:border-orange-500"
+                       placeholder="e.g., NESTLE BEAR BRAND POWDERED MILK 33G" />
+                <button @onclick="TestAISuggestion"
+                        class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all">
+                    <i class="fas fa-magic"></i> Suggest
+                </button>
+            </div>
+        </div>
+
+        @* Loading Indicator *@
+        @if (_isLoading)
+        {
+            <div class="flex items-center gap-2 text-orange-600">
+                <i class="fas fa-spinner fa-spin"></i>
+                <span>AI is thinking...</span>
+            </div>
+        }
+
+        @* Suggestion Result *@
+        @if (!string.IsNullOrEmpty(_testResult))
+        {
+            <div class="mt-4 p-4 rounded-xl border @(_testResult.Contains("Error") ? "border-red-300 bg-red-50" : "border-green-300 bg-green-50")">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-xs uppercase font-bold text-gray-500 mb-1">AI Suggestion</div>
+                        <div class="font-mono text-lg font-bold text-gray-800">@_testResult</div>
+                    </div>
+                    @if (!_testResult.Contains("Error") && !_testResult.Contains("No suggestion"))
+                    {
+                        <button @onclick="CopyToClipboard"
+                                class="px-3 py-1 bg-gray-200 rounded-lg text-sm hover:bg-gray-300">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+
+        @* Error Display *@
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="p-3 rounded-lg bg-red-700 border border-red-400 text-red-100 text-sm">
+                <i class="fas fa-exclamation-triangle mr-2"></i>
+                @_errorMessage
+            </div>
+        }
+
+        @* Quick Test Buttons *@
+        <div class="pt-4 border-t border-gray-200">
+            <label class="block text-sm font-medium text-gray-700 mb-2">
+                Quick Test Products:
+            </label>
+            <div class="flex flex-wrap gap-2">
+                @foreach (var testProduct in _quickTestProducts)
+                {
+                    <button @onclick="() => TestProductName = testProduct"
+                            class="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-full transition-all">
+                        @testProduct.Substring(0, Math.Min(30, testProduct.Length))...
+                    </button>
+                }
+            </div>
+        </div>
+        <button @onclick="CheckServiceStatus" class="px-3 py-1 bg-gray-500 text-white rounded">
+            Check Status
+        </button>
+        @* Training Section *@
+        <div class="pt-4 border-t border-gray-200">
+            <button @onclick="ForceRetrain"
+                    class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all">
+                <i class="fas fa-brain"></i> Force Retrain AI
+            </button>
+            <span class="text-xs text-gray-500 ml-3">
+                (Retrains model with all @_productCount products)
+            </span>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string TestProductName = string.Empty;
+    private string _testResult = string.Empty;
+    private string _errorMessage = string.Empty;
+    private bool _isLoading = false;
+    private int _productCount = 0;
+    private bool _isModelTrained = false;
+    private string _serviceStatus = "Initializing...";
+
+    private readonly List<string> _quickTestProducts = new()
+    {
+        "NESTLE BEAR BRAND POWDERED MILK 33G",
+        "LUCKY ME PANCIT CANTON EXTRA HOT 60G",
+        "COCA COLA REGULAR 290ML SAKTO",
+        "SILVER SWAN SOY SAUCE REFILL 200ML",
+        "PUREFOODS CORNED BEEF 150G",
+        "MILO POWDERED CHOCOLATE DRINK 300G"
+    };
+
+    
+  
+    private async Task CheckServiceStatus()
+    {
+        var status = await aiService.GetDebugInfoAsync();
+        Alert.Error(status);
+    }
+    private async Task TestAISuggestion()
+    {
+        if (string.IsNullOrWhiteSpace(TestProductName))
+        {
+            _testResult = string.Empty;
+            _errorMessage = "Please enter a product name first";
+            return;
+        }
+
+        _isLoading = true;
+        _errorMessage = string.Empty;
+        _testResult = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            var suggestion = await aiService.SuggestShortNameAsync(TestProductName);
+            
+            if (!string.IsNullOrEmpty(suggestion))
+            {
+                _testResult = suggestion;
+                Alert.Success($"AI suggested: {suggestion}");
+            }
+            else
+            {
+                _testResult = "No suggestion available";
+                Alert.Notify("No suggestion could be generated");
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error: {ex.Message}";
+            Alert.Error($"AI Error: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ForceRetrain()
+    {
+        _isLoading = true;
+        _errorMessage = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            Alert.Notify("Training started...");
+            await aiService.ForceRetrainAsync();
+            await LoadServiceStatus();
+            Alert.Success($"Training complete! Model trained on {_productCount} products");
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Training error: {ex.Message}";
+            Alert.Error($"Training failed: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadServiceStatus()
+    {
+        try
+        {
+            _productCount = aiService.ProductCount;
+            _isModelTrained = aiService.IsModelTrained;
+            _serviceStatus = _productCount > 0 ? "Ready" : "No data - waiting for CSV load";
+            
+            if (_productCount == 0)
+            {
+                _errorMessage = "No products loaded. Make sure product_data.csv exists in Resources/Raw folder";
+            }
+        }
+        catch (Exception ex)
+        {
+            _serviceStatus = "Error";
+            _errorMessage = $"Status error: {ex.Message}";
+        }
+        StateHasChanged();
+    }
+
+    private async Task CopyToClipboard()
+    {
+        if (!string.IsNullOrEmpty(_testResult))
+        {
+            await Clipboard.Default.SetTextAsync(_testResult);
+            Alert.Success("Copied to clipboard!");
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadServiceStatus();
+    
+        if (aiService.ProductCount == 0)
+        {
+            try
+            {
+                // 1. Load the CSV from MAUI Resources/Raw
+                using var stream = await FileSystem.OpenAppPackageFileAsync("product_data.csv");
+                using var reader = new StreamReader(stream);
+                var csvContent = await reader.ReadToEndAsync();
+        
+                // 2. CALL THE SERVICE METHOD (Missing Piece)
+                _isLoading = true;
+                _serviceStatus = "Importing CSV...";
+                StateHasChanged();
+
+                bool success = await aiService.LoadCSVIntoDatabaseAsync(csvContent);
+
+                if (success)
+                {
+                    Alert.Success("Initial product data loaded successfully!");
+                }
+                else
+                {
+                    Alert.Error("CSV found, but failed to parse data.");
+                }
+            }
+            catch (FileNotFoundException)
+            {
+                _errorMessage = "File 'product_data.csv' not found in Resources/Raw.";
+                Alert.Error(_errorMessage);
+            }
+            catch (Exception ex)
+            {
+                _errorMessage = $"Import Error: {ex.Message}";
+                Alert.Error(_errorMessage);
+            }
+            finally
+            {
+                await LoadServiceStatus(); // Refresh the counts and status
+                _isLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+}

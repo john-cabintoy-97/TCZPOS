@@ -1,0 +1,167 @@
+﻿@typeparam TItem
+@typeparam TValue
+
+<div class="relative space-y-1 @ContainerClass">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <label class="block text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">
+            @Label
+        </label>
+    }
+
+    <div class="relative">
+        @* UI: White base with slate text *@
+        <div class="flex items-center gap-2 rounded-lg border @BorderClass @BgClass focus-within:border-orange-500/50 focus-within:ring-2 focus-within:ring-orange-500/10 transition-all">
+            <i class="@IconClass text-slate-300 ml-2 text-xs"></i>
+            <input type="text"
+                   @bind="_searchTerm"
+                   @bind:event="oninput"
+                   @onfocus="() => _isOpen = true"
+                   placeholder="@Placeholder"
+                   class="w-full bg-transparent px-2 py-1 text-slate-700 placeholder-slate-500 outline-none @InputClass" />
+            
+            @if (!string.IsNullOrEmpty(_searchTerm))
+            {
+                <button type="button" @onclick="ClearSelection" class="text-slate-300 hover:text-red-500 transition-colors">
+                    <i class="fas fa-times-circle text-xs"></i>
+                </button>
+            }
+
+            <button type="button" @onclick="ToggleDropdown" class="px-2 text-slate-300 hover:text-orange-500">
+                <i class="fas @(_isOpen ? "fa-chevron-up" : "fa-chevron-down") text-[10px]"></i>
+            </button>
+        </div>
+
+        @if (_isOpen)
+        {
+            @* Dropdown: Changed bg-gray-100 to bg-white for your "White Base" requirement *@
+            <div class="absolute left-0 right-0 z-[110] mt-2 rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
+                <div class="custom-scrollbar max-h-60 overflow-y-auto">
+                    @if (FilteredItems.Any())
+                    {
+                        @foreach (var item in FilteredItems)
+                        {
+                            <button type="button"
+                                    @onclick="() => SelectItem(item)"
+                                    class="flex w-full items-center px-4 py-3 text-left text-sm text-slate-600 hover:bg-slate-50 hover:text-orange-600 transition-colors border-b border-slate-50 last:border-0">
+                                @ItemTemplate(item)
+                            </button>
+                        }
+                    }
+                    else
+                    {
+                        <div class="px-4 py-8 text-center bg-slate-50/50">
+                            <p class="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-3">No results for "@_searchTerm"</p>
+            
+                            @if (OnQuickAdd.HasDelegate)
+                            {
+                                <button type="button" @onclick="HandleQuickAdd"
+                                        class="mx-auto flex items-center gap-2 rounded-lg bg-white border border-slate-200 px-4 py-2 text-[10px] font-bold text-orange-600 hover:bg-orange-600 hover:text-white hover:border-orange-600 transition-all shadow-sm">
+                                    <i class="fas fa-plus"></i> CREATE NEW
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+                
+                @if (OnQuickAdd.HasDelegate)
+                {
+                    <button type="button" @onclick="HandleQuickAdd"
+                            class="flex w-full items-center justify-center gap-2 bg-slate-50 border-t border-slate-100 px-4 py-3 text-[10px] font-black text-slate-500 hover:text-orange-600 uppercase transition-all tracking-tighter">
+                        <i class="fas fa-plus-circle text-orange-500"></i> Add New Record to Registry
+                    </button>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@if (_isOpen)
+{
+    <div class="fixed inset-0 z-[105]" @onclick="() => _isOpen = false"></div>
+}
+
+@code {
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Placeholder { get; set; } = "-- Select --";
+    [Parameter] public string IconClass { get; set; } = "fas fa-layer-group";
+    [Parameter] public string? ContainerClass { get; set; }
+    [Parameter] public string InputClass { get; set; } = "text-sm";
+    [Parameter] public string BgClass { get; set; } = "bg-white";
+    [Parameter] public string BorderClass { get; set; } = "border-slate-200";
+
+    [Parameter] public TValue? Value { get; set; }
+    [Parameter] public EventCallback<TValue?> ValueChanged { get; set; }
+
+    [Parameter] public IEnumerable<TItem> Items { get; set; } = Enumerable.Empty<TItem>();
+    [Parameter] public Func<TItem, string> SearchSelector { get; set; } = default!;
+    [Parameter] public RenderFragment<TItem> ItemTemplate { get; set; } = default!;
+    [Parameter] public Func<TItem, TValue>? ValueSelector { get; set; }
+
+    [Parameter] public EventCallback<TItem> OnItemSelected { get; set; }
+    [Parameter] public EventCallback OnQuickAdd { get; set; }
+
+    private bool _isOpen = false;
+    private string _searchTerm = "";
+
+    private async Task ClearSelection()
+    {
+        _searchTerm = "";
+        await ValueChanged.InvokeAsync(default);
+        _isOpen = false;
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Improved logic to find the selected item name for the input field
+        if (Value == null || Value.ToString() == "0")
+        {
+            if (!_isOpen) _searchTerm = "";
+            return;
+        }
+
+        if (Items != null && Items.Any())
+        {
+            var selected = Items.FirstOrDefault(i =>
+                (ValueSelector != null && EqualityComparer<TValue>.Default.Equals(ValueSelector(i), Value)) ||
+                (i != null && i.Equals(Value)));
+
+            if (selected != null)
+            {
+                var newLabel = SearchSelector(selected);
+                // Only update if not currently typing to avoid cursor jumping
+                if (_searchTerm != newLabel && !_isOpen)
+                {
+                    _searchTerm = newLabel;
+                }
+            }
+        }
+    }
+
+    private IEnumerable<TItem> FilteredItems => string.IsNullOrWhiteSpace(_searchTerm)
+        ? Items
+        : Items.Where(i => SearchSelector(i).Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+
+    private void ToggleDropdown() => _isOpen = !_isOpen;
+
+    private async Task SelectItem(TItem item)
+    {
+        _searchTerm = SearchSelector(item);
+        _isOpen = false;
+
+        await OnItemSelected.InvokeAsync(item);
+
+        // FIX: Safe conversion for TValue
+        TValue? selectedValue = ValueSelector != null
+            ? ValueSelector(item)
+            : (TValue)(object)item;
+
+        await ValueChanged.InvokeAsync(selectedValue);
+    }
+
+    private async Task HandleQuickAdd()
+    {
+        _isOpen = false;
+        await OnQuickAdd.InvokeAsync();
+    }
+}

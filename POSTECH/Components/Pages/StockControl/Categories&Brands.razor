@@ -1,0 +1,613 @@
+﻿@page "/inventory/categories-brands"
+@using TCZPOS.Components.Services
+@using TCZPOS.Components.Modules
+@inject CategoryServices CategoryService
+@inject BrandServices brandServices
+@inject HardwareServices hardwareService
+@inject AlertServices Alert
+@inject IJSRuntime JS
+
+<div class="flex h-screen w-full flex-col overflow-hidden font-sans text-white">
+    <div class="flex flex-col bg-[#1A252F] p-4 shadow-xl lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+        <div class="flex items-center gap-3 pb-3 lg:pb-0">
+            <h2 class="text-xl font-bold text-white uppercase tracking-tight">
+                @(_activeTab == "Categories" ? "Category" : "Brand")
+                <span class="text-orange-500">Manager</span>
+            </h2>
+        </div>
+
+        <div class="flex bg-slate-800/50 p-1 rounded-xl border border-slate-700">
+            <button @onclick='() => SwitchTab("Categories")'
+                    class="px-6 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all @(_activeTab == "Categories" ? "bg-orange-500 text-white shadow-lg" : "text-slate-400 hover:text-white")">
+                Categories (@CategoryService.Categories.Count)
+            </button>
+            <button @onclick='() => SwitchTab("Brands")'
+                    class="px-6 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all @(_activeTab == "Brands" ? "bg-orange-500 text-white shadow-lg" : "text-slate-400 hover:text-white")">
+                Brands (@brandServices.BrandList.Count)
+            </button>
+        </div>
+    </div>
+
+    <div class="flex flex-1 flex-col overflow-hidden bg-white text-slate-800">
+
+        <div class="flex flex-col border-b bg-slate-50/50">
+            <div class="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+                <div class="flex flex-1 items-center gap-3">
+                    <div class="flex flex-1 max-w-md overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-orange-500 focus-within:ring-1 focus-within:ring-orange-500/20">
+                        <input type="text" @bind="SearchTerm" @bind:event="oninput"
+                               class="w-full px-4 py-2 text-sm font-medium outline-none"
+                               placeholder="Quick search product..." />
+                        <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                            <i class="fas fa-search text-xs"></i>
+                        </div>
+                    </div>
+            
+                    <button @onclick="OpenAddModal"
+                            class="flex h-[40px] items-center gap-2 rounded-xl bg-slate-900 px-5 font-black text-[10px] uppercase tracking-widest text-white shadow-lg transition-all hover:bg-orange-600 active:scale-95">
+                        <i class="fas fa-plus"></i>
+                        <span class="hidden sm:inline">New @(_activeTab == "Categories" ? "Category" : "Brand")</span>
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0">
+                    <button @onclick='() => SetFilter("All")'
+                            class="whitespace-nowrap rounded-full px-4 py-1.5 text-[10px] font-bold uppercase transition-all @(_activeFilter == "All" ? "bg-orange-500 text-white" : "bg-white border border-slate-200 text-slate-500")">
+                        All
+                    </button>
+                    <button @onclick='() => SetFilter("Recent")'
+                            class="whitespace-nowrap rounded-full px-4 py-1.5 text-[10px] font-bold uppercase transition-all @(_activeFilter == "Recent" ? "bg-orange-500 text-white" : "bg-white border border-slate-200 text-slate-500")">
+                        Recently Added
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-1 border-t border-slate-200 bg-white px-4 py-1.5">
+                <span class="mr-2 text-[9px] font-black uppercase tracking-tighter text-slate-400">Index:</span>
+                <div class="flex flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar">
+                    <button @onclick='() => SetLetter("All")'
+                            class="px-2 py-1 text-[10px] font-bold @(_selectedLetter == "All" ? "text-orange-600 underline" : "text-slate-400 hover:text-slate-900")">
+                        All
+                    </button>
+                    @foreach (var letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                    {
+                        var l = letter.ToString();
+                        <button @onclick="() => SetLetter(l)"
+                                class="min-w-[24px] px-1 py-1 text-[10px] font-bold transition-colors @(_selectedLetter == l ? "rounded bg-orange-100 text-orange-700" : "text-slate-400 hover:text-slate-900")">
+                            @l
+                        </button>
+                    }
+                </div>
+        
+                @if (_selectedLetter != "All" || _activeFilter != "All" || !string.IsNullOrEmpty(_searchTerm))
+                {
+                    <button @onclick="ClearAllFilters" class="ml-2 text-[9px] font-black text-red-500 uppercase hover:text-red-700">
+                        Reset
+                    </button>
+                }
+            </div>
+        </div>
+           
+        
+        <div class="flex flex-1 flex-col overflow-hidden">
+            @if (_activeTab == "Categories")
+            {
+                <GenericTable TItem="CategoryModels"
+                              SearchTerm="@_searchTerm"
+                              @ref="_tableRefCategories"
+                              TableTitle="Category Records"
+                              Items="PagedCategories"
+                              IsLoading="CategoryService.IsLoading"
+                              TotalCount="FilteredCategories.Count()"
+                              PageSize="10"
+                              CurrentPage="@_currentPage"
+                              RowClassFunc='(item) => _selectedId == item.Id ? "bg-orange-50/5 border-l-4 border-orange-500 shadow-inner" : "hover:bg-slate-200"'
+                              OnBatchDelete="HandleBatchDeleteTrigger"
+                              OnPageChanged="HandlePageChange">
+            
+                    <TableHeader>
+                        <th class="md:hidden px-4 py-3 text-left text-[10px] uppercase font-black tracking-widest text-slate-400">Category Details</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400">Category Name</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400">Created At</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-right tracking-widest text-slate-400">Commands</th>
+                    </TableHeader>
+
+                    <RowTemplate Context="data">
+                        <td colspan="7" class="md:hidden p-0 border-b-4 border-slate-200 bg-white hover:bg-slate-50 transition-colors">
+                            <div class="flex flex-col gap-3 p-4">
+                                <div class="flex justify-between items-start">
+                                    <div class="flex flex-col">
+                
+                                        <span class="font-black text-black-800 uppercase text-sm">  @data.Item.Name</span>
+                
+                                        <div class="flex items-center gap-1 mt-1 mb-1">
+                                            <div class="h-1.5 w-1.5 rounded-full @(_selectedId == data.Item.Id ? "bg-orange-500 shadow-[0_0_8px_#f97316]" : "bg-orange-500/40") transition-all"></div>
+
+                                            <span class="font-mono text-[9px] text-zinc bg-yellow-400 border border-yellow-300 px-1.5 py-0.5 rounded shadow-sm">
+                                                #@data.Index.ToString("D2")
+                                            </span>
+                                        </div>
+                
+                                        <span class="text-[9px] text-slate-400 font-mono">
+                                            @data.Item.CreatedAt.ToShortDateString()
+                                        </span>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="flex justify-end gap-3 ">
+                                            <button @onclick="() => OpenEditModal(data.Item)" @onclick:stopPropagation="true" class="bg-blue-50 text-blue-500 text-xs hover:text-blue-300">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button @onclick="() => OpenDeleteModal(data.Item)" @onclick:stopPropagation="true" class="bg-red-50 text-red-500 text-xs hover:text-red-300">
+                                                <i class="fas fa-trash-alt"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                       
+                        @* Desktop Cells *@
+                        <td class="hidden md:table-cell px-4 py-3">
+                            <div class="flex items-center gap-3">
+                                <div class="h-1.5 w-1.5 rounded-full @(_selectedId == data.Item.Id ? "bg-orange-500 shadow-[0_0_8px_#f97316]" : "bg-orange-500/40") transition-all"></div>
+                
+                                <span class="font-mono text-[9px] bg-yellow-400 border border-yellow-300 px-1.5 py-0.5 rounded">
+                                    #@data.Index.ToString("D2")
+                                </span>
+
+                                <span class="truncate font-bold text-zinc-800 uppercase tracking-tight">
+                                    @data.Item.Name
+                                </span>
+                            </div>
+                        </td>
+                        <td class="hidden md:table-cell px-4 py-3 text-slate-500 text-xs">
+                            @data.Item.CreatedAt.ToShortDateString()
+                        </td>
+                        <td class="hidden md:table-cell px-4 py-3 text-right">
+                            <div class="flex justify-end gap-3 ">
+                                <button @onclick="() => OpenEditModal(data.Item)" @onclick:stopPropagation="true" class="bg-blue-50 text-blue-500 hover:text-blue-300">
+                                    <i class="fas fa-edit text-xs"></i>
+                                </button>
+                                <button @onclick="() => OpenDeleteModal(data.Item)" @onclick:stopPropagation="true" class="bg-red-50 text-red-500 hover:text-red-300">
+                                    <i class="fas fa-trash-alt text-xs"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </RowTemplate>
+
+                  
+                </GenericTable>
+                   
+            }
+            else
+            {
+                <GenericTable TItem="BrandModels"
+                              SearchTerm="@_searchTerm"
+                              @ref="_tableRefBrands"
+                              TableTitle="Brand Records"
+                              Items="PagedBrands"
+                              IsLoading="brandServices.IsLoading"
+                              TotalCount="FilteredBrands.Count()"
+                              PageSize="10"
+                              CurrentPage="@_currentPage"
+                              RowClassFunc='(item) => _selectedId == item.Id ? "bg-orange-50/5 border-l-4 border-orange-500 shadow-inner" : "hover:bg-slate-200"'
+                              OnBatchDelete="HandleBatchDeleteTrigger"
+                              OnPageChanged="HandlePageChange">
+            
+                    <TableHeader>
+                        <th class="md:hidden px-4 py-3 text-left text-[10px] uppercase font-black tracking-widest text-slate-400">Brand Details</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400">Brand Name</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400">Created At</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-right tracking-widest text-slate-400">Commands</th>
+                    </TableHeader>
+
+                    <RowTemplate Context="data">
+                        <td colspan="7" class="md:hidden p-0 border-b-4 border-slate-200 bg-white hover:bg-slate-50 transition-colors">
+                            <div class="flex flex-col gap-3 p-4">
+                                <div class="flex justify-between items-start">
+                                    <div class="flex flex-col">
+                
+                                        <span class="font-black text-black-800 uppercase text-sm">  @data.Item.Name</span>
+                
+                                        <div class="flex items-center gap-1 mt-1 mb-1">
+                                            <div class="h-1.5 w-1.5 rounded-full @(_selectedId == data.Item.Id ? "bg-orange-500 shadow-[0_0_8px_#f97316]" : "bg-orange-500/40") transition-all"></div>
+
+                                            <span class="font-mono text-[9px] text-zinc bg-yellow-400 border border-yellow-300 px-1.5 py-0.5 rounded shadow-sm">
+                                                #@data.Index.ToString("D2")
+                                            </span>
+                                        </div>
+                
+                                        <span class="text-[9px] text-slate-400 font-mono">
+                                            @data.Item.CreatedAt.ToShortDateString()
+                                        </span>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="flex justify-end gap-3 ">
+                                            <button @onclick="() => OpenEditModal(data.Item)" @onclick:stopPropagation="true" class="text-blue-500 hover:text-blue-300">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button @onclick="() => OpenDeleteModal(data.Item)" @onclick:stopPropagation="true" class="text-red-500 hover:text-red-400">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                        @* Desktop Cells *@
+                        <td class="hidden md:table-cell px-4 py-3">
+                            <div class="flex items-center gap-3">
+                                <div class="h-1.5 w-1.5 rounded-full @(_selectedId == data.Item.Id ? "bg-orange-500 shadow-[0_0_8px_#f97316]" : "bg-orange-500/40") transition-all"></div>
+                
+                                <span class="font-mono text-[9px] bg-yellow-400 border border-yellow-300 px-1.5 py-0.5 rounded">
+                                    #@data.Index.ToString("D2")
+                                </span>
+
+                                <span class="truncate font-bold text-zinc-800 uppercase tracking-tight">
+                                    @data.Item.Name
+                                </span>
+                            </div>
+                        </td>
+                        <td class="hidden md:table-cell px-4 py-3 text-slate-500 text-xs">
+                            @data.Item.CreatedAt.ToShortDateString()
+                        </td>
+                        <td class="hidden md:table-cell px-4 py-3 text-right">
+                            <div class="flex justify-end gap-3 ">
+                                <button @onclick="() => OpenEditModal(data.Item)" @onclick:stopPropagation="true" class="text-blue-500 hover:text-blue-300">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button @onclick="() => OpenDeleteModal(data.Item)" @onclick:stopPropagation="true" class="text-red-500 hover:text-red-400">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </RowTemplate>
+
+                  
+                </GenericTable>
+           
+            }
+        </div>
+    </div>
+</div>
+
+@* --- UNIFIED SINGLE/EDIT MODAL --- *@
+@if (_showModal)
+{
+    <Modal IsVisible="_showModal"
+           Title="@(_isEditMode ? "Update Record" : "New Entry")"
+           ShowFooter="true"
+           OnClose="CloseModal"
+           OnConfirm="HandleSave">
+        <ChildContent>
+            <div class="space-y-4 p-3 bg-[#1E2939]">
+                <div class="rounded-xl border border-gray-700 p-4">
+                    <label class="block text-[10px] font-black text-gray-500 uppercase mb-2 tracking-widest">
+                        @(_activeTab == "Categories" ? "Category Name" : "Brand Name")
+                    </label>
+
+                    @if (_activeTab == "Categories")
+                    {
+                        <input @bind="_activeCategory.Name" @bind:event="oninput"
+                               class="w-full bg-transparent border-none text-white text-lg font-bold outline-none placeholder:text-gray-600"
+                               placeholder="Enter Category (e.g. BEVERAGES)..." autofocus />
+                    }
+                    else
+                    {
+                        <input @bind="_activeBrand.Name" @bind:event="oninput"
+                               class="w-full bg-transparent border-none text-white text-lg font-bold outline-none placeholder:text-gray-600"
+                               placeholder="Enter Brand (e.g. NESCAFE)..." autofocus />
+                    }
+                </div>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+
+@* --- UNIFIED DELETE MODAL --- *@
+@if (_showDeleteModal)
+{
+    <Modal IsVisible="_showDeleteModal" Title="Confirm Deletion" OnClose="() => _showDeleteModal = false" OnConfirm="ConfirmDelete">
+        <ChildContent>
+            <div class="p-5 text-center bg-[#1E2939]">
+                <div class="mb-4 flex justify-center">
+                    <div class="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10 text-red-500 shadow-inner">
+                        <i class="fas fa-exclamation-triangle text-2xl"></i>
+                    </div>
+                </div>
+                <h3 class="text-lg font-bold text-white uppercase">System Warning</h3>
+                <p class="mt-2 text-sm text-red-400">
+                    You are about to permanently remove the @(_activeTab.TrimEnd('s').ToLower()):
+                    <span class="block mt-1 font-mono font-bold text-orange-500">
+                        @(_activeTab == "Categories" ? _activeCategory.Name : _activeBrand.Name)
+                    </span>
+                </p>
+                <p class="mt-4 text-[10px] text-gray-600 uppercase tracking-widest">This action cannot be undone.</p>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+
+@* --- UNIFIED BATCH DISPOSAL MODAL --- *@
+@if (_showBatchModal)
+{
+    <Modal IsVisible="_showBatchModal"
+           Title="Batch Disposal Authorization"
+           OnClose="() => _showBatchModal = false"
+           OnConfirm="ConfirmBatchDelete">
+        <ChildContent>
+            <div class="p-6 text-center bg-[#1E2939]">
+                <div class="mb-4 flex justify-center">
+                    <div class="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10 text-red-500 shadow-inner">
+                        <i class="fas fa-layer-group text-2xl"></i>
+                    </div>
+                </div>
+                <h3 class="text-lg font-bold text-white uppercase tracking-tighter">Bulk Action Warning</h3>
+                <p class="mt-2 text-sm text-gray-400">
+                    You are about to erase
+                    <span class="text-red-500 font-black">
+                        @(_activeTab == "Categories" ? _categoriesToDelete.Count : _brandsToDelete.Count)
+                    </span>
+                    @_activeTab.ToLower() records.
+                </p>
+
+                <div class="mt-4 max-h-32 overflow-y-auto rounded-xl bg-gray-900/50 border border-gray-700 p-3 text-left custom-scrollbar">
+                    @if (_activeTab == "Categories")
+                    {
+                        @foreach (var item in _categoriesToDelete)
+                        {
+                            <div class="flex items-center gap-2 py-1 border-b border-gray-800 last:border-0">
+                                <div class="h-1 w-1 rounded-full bg-red-500"></div>
+                                <span class="text-[10px] font-mono text-gray-400 uppercase">@item.Name</span>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        @foreach (var item in _brandsToDelete)
+                        {
+                            <div class="flex items-center gap-2 py-1 border-b border-gray-800 last:border-0">
+                                <div class="h-1 w-1 rounded-full bg-red-500"></div>
+                                <span class="text-[10px] font-mono text-gray-400 uppercase">@item.Name</span>
+                            </div>
+                        }
+                    }
+                </div>
+
+                <p class="mt-4 text-[10px] text-gray-600 uppercase tracking-widest italic font-bold">
+                    Proceeding will permanently wipe these entries.
+                </p>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? tab { get; set; }
+
+    private GenericTable<CategoryModels> _tableRefCategories = default!;
+    private GenericTable<BrandModels> _tableRefBrands = default!;
+
+    private string _activeTab = "Categories";
+    private string _selectedLetter = "All";
+    private string _activeFilter = "All";
+    private int _currentPage = 1;
+    private int _pageSize = 10;
+
+    // Selection & UI State
+    private int _selectedId = -1;
+    private bool _showModal = false;
+    private bool _showDeleteModal = false;
+    private bool _showBatchModal = false;
+    private bool _isEditMode = false;
+    
+    // Active Objects (Generic enough to handle both since they share properties)
+    private CategoryModels _activeCategory = new();
+    private BrandModels _activeBrand = new();
+
+    // References for Batch Delete
+    private List<CategoryModels> _categoriesToDelete = new();
+    private List<BrandModels> _brandsToDelete = new();
+
+    private void SwitchTab(string tabName)
+    {
+        _activeTab = tabName;
+        _currentPage = 1;
+    
+        // Initialize the objects to prevent empty/null binding errors
+        if (_activeTab == "Categories") _activeCategory = new();
+        else _activeBrand = new();
+    
+        ClearAllFilters();
+        StateHasChanged();
+    }
+
+    // --- Search Logic ---
+    private string _searchTerm = "";
+    private string SearchTerm
+    {
+        get => _searchTerm;
+        set
+        {
+            if (_searchTerm != value)
+            {
+                _searchTerm = value;
+                _currentPage = 1; // RESET PAGE ON SEARCH
+            }
+        }
+    }
+
+    // --- Data Streams ---
+    private IEnumerable<CategoryModels> FilteredCategories => CategoryService.Categories
+        .Where(x => string.IsNullOrWhiteSpace(_searchTerm) || x.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))
+        .Where(x => _selectedLetter == "All" || x.Name.StartsWith(_selectedLetter, StringComparison.OrdinalIgnoreCase))
+        .Where(x => _activeFilter != "Recent" || x.CreatedAt >= DateTime.Now.AddDays(-7));
+
+    private IEnumerable<BrandModels> FilteredBrands => brandServices.BrandList
+        .Where(x => string.IsNullOrWhiteSpace(_searchTerm) || x.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))
+        .Where(x => _selectedLetter == "All" || x.Name.StartsWith(_selectedLetter, StringComparison.OrdinalIgnoreCase))
+        .Where(x => _activeFilter != "Recent" || x.CreatedAt >= DateTime.Now.AddDays(-7));
+
+    private IEnumerable<CategoryModels> PagedCategories => FilteredCategories
+     .Skip((_currentPage - 1) * _pageSize)
+     .Take(_pageSize);
+
+    private IEnumerable<BrandModels> PagedBrands => FilteredBrands
+        .Skip((_currentPage - 1) * _pageSize)
+        .Take(_pageSize);
+    // --- Initialization ---
+    protected override async Task OnInitializedAsync()
+    {
+
+        if (!string.IsNullOrEmpty(tab))
+        {
+            _activeTab = tab; 
+        }
+        await Task.WhenAll(CategoryService.LoadCategoriesAsync(), brandServices.LoadAsync());
+    }
+
+    // --- Shared Handlers ---
+    private void SetLetter(string letter) { _selectedLetter = letter; _currentPage = 1; }
+    private void SetFilter(string filter) { _activeFilter = filter; _currentPage = 1; }
+
+    private void HandlePageChange(int newPage)
+    {
+        int totalItems = _activeTab == "Categories"
+         ? FilteredCategories.Count()
+         : FilteredBrands.Count();
+
+        var maxPage = (int)Math.Ceiling((double)totalItems / _pageSize);
+
+        if (maxPage < 1) maxPage = 1;
+
+        if (newPage >= 1 && newPage <= maxPage)
+        {
+            _currentPage = newPage;
+            StateHasChanged();
+        }
+    }
+
+    private void ClearAllFilters()
+    {
+        _searchTerm = ""; _selectedLetter = "All"; _activeFilter = "All"; _currentPage = 1;
+    }
+
+    // --- Unified Modal Logic ---
+    private void OpenAddModal()
+    {
+        _isEditMode = false;
+        // Create fresh instances to clear inputs
+        _activeCategory = new() { Name = "" };
+        _activeBrand = new() { Name = "" };
+    
+        _showModal = true;
+    }
+
+    private void OpenEditModal(object item)
+    {
+        _isEditMode = true;
+        if (item is CategoryModels c) _activeCategory = new() { Id = c.Id, Name = c.Name, CreatedAt = c.CreatedAt };
+        else if (item is BrandModels b) _activeBrand = new() { Id = b.Id, Name = b.Name, CreatedAt = b.CreatedAt };
+        _showModal = true;
+    }
+
+    private async Task HandleSave()
+    {
+        var result = _activeTab == "Categories"
+            ? await CategoryService.SaveCategoryAsync(_activeCategory)
+            : await brandServices.SaveAsync(_activeBrand);
+
+        if (result.Success)
+        {
+            await hardwareService.VibrateFeedback();
+            string entityName = _activeTab == "Categories" ? _activeCategory.Name : _activeBrand.Name;
+            Alert.Success($"{entityName} has been synchronized.");
+
+            _showModal = false;
+        
+            if (_activeTab == "Categories") await CategoryService.LoadCategoriesAsync();
+            else await brandServices.LoadAsync();
+        
+            StateHasChanged();
+        }
+        else
+        {
+            Alert.Error(result.Message);
+        }
+    }
+
+    // --- Delete Logic ---
+    private void OpenDeleteModal(object item)
+    {
+        if (item is CategoryModels c) _activeCategory = c;
+        else if (item is BrandModels b) _activeBrand = b;
+        _showDeleteModal = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        string entityName = _activeTab == "Categories" ? _activeCategory.Name : _activeBrand.Name;
+        
+        var result = _activeTab == "Categories"
+            ? await CategoryService.DeleteCategoryAsync(_activeCategory)
+            : await brandServices.DeleteAsync(_activeBrand);
+        
+        if (result.Success)
+        {
+            Alert.Warning($"{entityName} removed from system."); // Deletion Warning
+            _showDeleteModal = false;
+            _selectedId = -1;
+            StateHasChanged();
+        }
+        else
+        {
+            Alert.Error(result.Message);
+        }
+    }
+
+    private void HandleBatchDeleteTrigger<T>(List<T> selected)
+    {
+        if (typeof(T) == typeof(CategoryModels)) _categoriesToDelete = selected.Cast<CategoryModels>().ToList();
+        else _brandsToDelete = selected.Cast<BrandModels>().ToList();
+        _showBatchModal = true;
+    }
+
+   
+    private async Task ConfirmBatchDelete()
+    {
+        
+        var result = _activeTab == "Categories"
+            ? await CategoryService.DeleteMultipleCategoriesAsync(_categoriesToDelete)
+            : await brandServices.DeleteMultipleAsync(_brandsToDelete);
+
+        if (result.Success)
+        {
+            await hardwareService.VibrateFeedback();
+            
+            Alert.Success($"{(_activeTab == "Categories" ? _categoriesToDelete.Count : _brandsToDelete.Count)} records purged.");
+
+            if (_activeTab == "Categories") _tableRefCategories.ClearSelection();
+            else _tableRefBrands.ClearSelection();
+            
+            _showBatchModal = false;
+            
+            if (_activeTab == "Categories") await CategoryService.LoadCategoriesAsync();
+            else await brandServices.LoadAsync();
+            
+            StateHasChanged();
+        }
+        else
+        {
+            Alert.Error(result.Message); // Batch error alert
+        }
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+        _showDeleteModal = false;
+        _showBatchModal = false;
+        
+    }
+
+}

@@ -1,0 +1,88 @@
+﻿@using TCZPOS.Components.Modules
+@using TCZPOS.Components.Services
+@inject ScannerNativeServices Scanner
+@inject AlertServices Alert
+
+<button @onclick="HandleClick"
+        disabled="@(!IsEnabled || isScanning)"
+        @attributes="AdditionalAttributes"
+        class="@GetVariantClasses()">
+
+    @* Icon: Simply rendered with its own class (Matches the pink/red icon in image) *@
+    @if (isScanning)
+    {
+        <div class="spinner-border spinner-border-sm" role="status"></div>
+    }
+    else if (CustomIcon != null)
+    {
+        @CustomIcon
+    }
+    else
+    {
+        <i class="@Icon @IconClass flex-none"></i>
+    }
+
+    @* Label: Clean text (Matches the "POS Terminal" text) *@
+    <span class="truncate @LabelClass">
+        @(isScanning ? "Scanning..." : Label)
+    </span>
+
+</button>
+
+@code {
+    [Parameter] public EventCallback OnManualEntryRequested { get; set; }
+    [Parameter] public bool ShowManual { get; set; } = false;
+    [Parameter] public string ScanMode { get; set; } = "BARCODE";
+    [Parameter] public EventCallback<string> OnScanResult { get; set; }
+    
+    [Parameter] public string Icon { get; set; } = "fas fa-barcode";
+    [Parameter] public string IconClass { get; set; } = "text-lg"; // Put your color here (e.g., text-red-400)
+    [Parameter] public string Label { get; set; } = "Scan";
+    [Parameter] public string LabelClass { get; set; } = "";
+    [Parameter] public bool IsEnabled { get; set; } = true;
+    [Parameter] public RenderFragment? CustomIcon { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private bool isScanning = false;
+
+    private async Task HandleClick()
+    {
+        if (isScanning) return;
+        isScanning = true;
+        StateHasChanged();
+
+        try
+        {
+            var code = await Scanner.ReadBarcodeAsync(ScanMode, ShowManual);
+            if (code == "[MANUAL_INPUT]")
+            {
+                if (OnManualEntryRequested.HasDelegate) await OnManualEntryRequested.InvokeAsync();
+            }
+            else if (!string.IsNullOrEmpty(code))
+            {
+                await OnScanResult.InvokeAsync(code);
+            }
+        }
+        catch (Exception)
+        {
+            Alert.Error("Scanner Error");
+        }
+        finally
+        {
+            isScanning = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetVariantClasses()
+    {
+        if (AdditionalAttributes != null && AdditionalAttributes.TryGetValue("class", out var c))
+        {
+            return c.ToString() ?? "";
+        }
+        // Fallback simple flex layout
+        return "flex items-center gap-4 px-4 py-2";
+    }
+}

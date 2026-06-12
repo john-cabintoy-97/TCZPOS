@@ -1,0 +1,87 @@
+﻿
+<div class="custom-scrollbar max-h-[70vh] overflow-y-auto p-6 text-gray-300 ">
+    @if (IsVisible)
+    {
+        @* 1. The Backdrop - Clicking this triggers Close *@
+        <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity"
+             @onclick="HandleBackdropClick" @onkeydown="HandleKeyDown"
+             tabindex="-1">
+        
+            @* 2. The Modal Card - Added @onclick:stopPropagation *@
+            <div class="relative w-full max-w-lg scale-100 transform rounded-2xl border border-gray-700 bg-gray-800 opacity-100 shadow-2xl transition-all"
+                 @onclick:stopPropagation="true">
+            
+                @* Header *@
+                <div class="flex items-center justify-between border-b border-gray-700 p-6">
+                    <h3 class="text-xl font-bold text-white">@Title</h3>
+                    <button @onclick="Close" class="text-gray-400 transition-colors hover:text-white">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+
+                @* Body *@
+                <div class="custom-scrollbar max-h-[70vh] overflow-y-auto  p-0 text-gray-300 @customCss">
+                    @ChildContent
+                </div>
+
+                @* Conditional Footer *@
+                @if (ShowFooter)
+                {
+                    <div class="flex items-center justify-end gap-3 rounded-b-2xl bg-gray-900/50 @customFooterCss">
+                        @if (CustomFooter != null)
+                        {
+                            @CustomFooter
+                                                        }
+                        else
+                        {
+                            <button @onclick="Close" class="px-5 py-2 text-sm font-semibold text-gray-400 transition-colors hover:text-white">
+                                Cancel
+                            </button>
+                            <button @onclick="OnConfirm"
+                                    class="rounded-lg bg-yellow-500 px-5 py-2 text-sm font-bold text-gray-900 shadow-lg shadow-yellow-500/20 transition-all hover:bg-yellow-600">
+                                Confirm
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+
+@code {
+    [Parameter] public RenderFragment? CustomFooter { get; set; }
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public string? customCss { get; set; }
+    [Parameter] public string? customFooterCss { get; set; } = "p-6";
+
+    [Parameter] public bool DisableBackdropClick { get; set; } = false;
+    [Parameter] public bool ShowFooter { get; set; } = true;
+    [Parameter] public string Title { get; set; } = "Notification";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await OnConfirm.InvokeAsync();
+        }
+        else if (e.Key == "Escape")
+        {
+            await OnClose.InvokeAsync();
+        }
+    }
+
+    private async Task HandleBackdropClick()
+    {
+        if (!DisableBackdropClick)
+        {
+            await Close();
+        }
+    }
+
+   
+    private async Task Close() => await OnClose.InvokeAsync();
+}

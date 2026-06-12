@@ -1,0 +1,186 @@
+﻿@typeparam TItem
+
+<div class="flex h-full w-full  border border-gray-700 flex-col overflow-hidden bg-white @customCss">
+
+    @if (ShowSelection && SelectedItems.Any())
+    {
+        @* Table Header / Controls *@
+        <div class="flex flex-none items-center justify-between border-b border-slate-200 bg-slate-800 px-4 py-2">
+            <div class="flex items-center gap-2">
+                <span class="font-mono text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    <i class="fas fa-list-ul mr-1 text-orange-500"></i> @TableTitle
+                </span>
+            </div>
+
+            @if (SelectedItems.Any())
+            {
+                <div class="flex items-center gap-3 animate-in fade-in slide-in-from-top-1">
+                    <span class="text-[10px] font-black text-red-500 uppercase">
+                        @SelectedItems.Count Selected
+                    </span>
+                    <button @onclick="OnBatchDeleteTriggered"
+                            class="rounded-lg bg-red-600 px-3 py-1 text-[10px] font-black text-white shadow-lg shadow-red-500/20 transition-all hover:bg-red-500 active:scale-95">
+                        REMOVE SELECTED
+                    </button>
+                </div>
+            }
+        </div>
+    }
+
+    @* Main Table Area *@
+    <div class="relative flex-1 overflow-hidden ">
+        @if (IsLoading)
+        {
+            <div class="flex h-full flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
+                <div class="h-8 w-8 animate-spin rounded-full border-2 border-orange-500 border-t-transparent"></div>
+                <p class="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-tighter">Synchronizing Data...</p>
+            </div>
+        }
+        else if (Items == null || !Items.Any())
+        {
+            <div class="flex flex-col items-center justify-center h-full p-12 text-center">
+                <i class="fas fa-folder-open text-gray-800 text-3xl mb-3"></i>
+                <h3 class="text-gray-600 font-bold uppercase text-xs tracking-widest">No Records Found</h3>
+                @if (!string.IsNullOrEmpty(SearchTerm))
+                {
+                    <p class="text-gray-700 text-[10px] mt-1 italic">Query: "@SearchTerm" returned zero results.</p>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="custom-scrollbar h-full overflow-auto">
+                <table class="w-full border-collapse text-left">
+                    @* THE HEADER NOW ALWAYS RENDERS *@
+                    <thead class="sticky top-0 z-20 bg-[#1a252f] text-[10px] font-bold text-white uppercase tracking-wider shadow-md">
+                        <tr class="text-[10px] text-white uppercase tracking-widest border-b border-gray-800">
+                            @if (ShowSelection)
+                            {
+                                <th class="w-12 px-4 py-3">
+                                    <div class="flex items-center justify-center">
+                                        <input type="checkbox" @onchange="ToggleSelectAll" class="h-4 w-4 rounded accent-orange-500" />
+                                    </div>
+                                </th>
+                            }
+                            @TableHeader
+                        </tr>
+                    </thead>
+
+                    <tbody class="divide-y divide-slate-100 text-sm text-slate-700 font-medium">
+                        @{
+                            int i = 1;
+                        }
+                        @foreach (var item in Items)
+                        {
+                            int displayIndex = ((CurrentPage - 1) * PageSize) + i++;
+                            string rowClass = RowClassFunc?.Invoke(item) ?? "hover:bg-slate-200";
+
+                            <tr @onclick="() => OnRowClick.InvokeAsync(item)"
+                                class="transition-colors cursor-pointer @rowClass">
+                                @if (ShowSelection)
+                                {
+                                    <td class="w-12 px-4 py-3 text-center">
+                                        <input type="checkbox"
+                                               checked="@SelectedItems.Contains(item)"
+                                               @onchange="@((ChangeEventArgs __e) => OnItemSelected(item))"
+                                               @onclick:stopPropagation="true"
+                                               class="accent-orange-500" />
+                                    </td>
+                                }
+                                @RowTemplate((item, displayIndex))
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
+    @* Footer / Pagination *@
+    <div class="flex flex-none items-center justify-between border-t border-slate-200 bg-[#f8fafc] px-4 py-3">
+        <div class="flex items-center gap-6">
+            <div class="flex flex-col">
+                <span class="text-[10px] font-bold text-slate-400 uppercase leading-none">Page Control</span>
+                <span class="text-xs font-black text-slate-900 font-mono mt-1">
+                    @CurrentPage <span class="text-slate-300 mx-1">/</span> @TotalPages
+                </span>
+            </div>
+            <div class="h-8 w-[1px] bg-slate-200"></div>
+            <div class="flex flex-col">
+                <span class="text-[10px] font-bold text-slate-400 uppercase leading-none">Total Entries</span>
+                <span class="text-xs font-black text-orange-500 font-mono mt-1">[@TotalCount]</span>
+            </div>
+        </div>
+
+        <div class="flex gap-1">
+            <button @onclick="() => OnPageChanged.InvokeAsync(CurrentPage - 1)"
+                    disabled="@(CurrentPage <= 1)"
+                    class="group flex h-10 w-12 items-center justify-center rounded-lg border border-slate-200 bg-white transition-all hover:border-orange-500 hover:text-orange-500 disabled:opacity-30 disabled:hover:border-slate-200">
+                <i class="fas fa-chevron-left text-xs"></i>
+            </button>
+
+            <button @onclick="() => OnPageChanged.InvokeAsync(CurrentPage + 1)"
+                    disabled="@(CurrentPage >= TotalPages)"
+                    class="group flex h-10 w-12 items-center justify-center rounded-lg border border-slate-200 bg-white transition-all hover:border-orange-500 hover:text-orange-500 disabled:opacity-30 disabled:hover:border-slate-200">
+                <i class="fas fa-chevron-right text-xs"></i>
+            </button>
+        </div>
+    </div>
+</div> @* This closes the main wrapper div *@
+
+@code {
+    [Parameter] public string TableTitle { get; set; } = "Records Table";
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public string SearchTerm { get; set; } = "";
+    [Parameter] public IEnumerable<TItem>? Items { get; set; }
+    [Parameter] public RenderFragment TableHeader { get; set; } = default!;
+    [Parameter] public RenderFragment<(TItem Item, int Index)> RowTemplate { get; set; } = default!;
+    [Parameter] public bool ShowSelection { get; set; } = true;
+    [Parameter] public int CurrentPage { get; set; } = 1;
+    [Parameter] public int TotalCount { get; set; }
+    [Parameter] public int PageSize { get; set; } = 10;
+    [Parameter] public EventCallback<int> OnPageChanged { get; set; }
+    [Parameter] public EventCallback<TItem> OnRowClick { get; set; }
+    [Parameter] public Func<TItem, string>? RowClassFunc { get; set; }
+    [Parameter] public string customCss { get; set; } = "";
+    [Parameter] public EventCallback<List<TItem>> OnBatchDelete { get; set; }
+    public List<TItem> SelectedItems { get; set; } = new();
+
+    public void OnItemSelected(TItem item)
+    {
+        if (SelectedItems.Contains(item))
+            SelectedItems.Remove(item);
+        else
+            SelectedItems.Add(item);
+        StateHasChanged();
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        bool isChecked = (bool)(e.Value ?? false);
+        if (isChecked && Items != null)
+        {
+            foreach (var item in Items)
+            {
+                if (!SelectedItems.Contains(item)) SelectedItems.Add(item);
+            }
+        }
+        else if (Items != null)
+        {
+            SelectedItems.Clear();
+        }
+    }
+
+    private async Task OnBatchDeleteTriggered()
+    {
+        await OnBatchDelete.InvokeAsync(SelectedItems);
+    }
+
+    public void ClearSelection()
+    {
+        SelectedItems.Clear();
+        StateHasChanged();
+    }
+
+    private int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
+}

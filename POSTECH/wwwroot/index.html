@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>TCZPOS</title>
+    <base href="/" />
+    <link rel="stylesheet" href="output.css" />
+    <link rel="stylesheet" href="app.css" />
+    <link href="fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
+
+    <link href="https://fonts.googleapis.com/css?family=Nunito:200,200i,300,300i,400,400i,600,600i,700,700i,800,800i,900,900i"
+          rel="stylesheet">
+    <link rel="stylesheet" href="TCZPOS.styles.css" />
+    <link rel="icon" href="data:,">
+</head>
+
+<body id="page-top" class="bg-[#1a252f] text-white">
+    <!-- Safe area -->
+    <div class="h-safe"></div>
+
+    <div id="app">
+        <div class="flex flex-col justify-center items-center min-h-screen">
+
+            <!-- Icon -->
+            <div class="mb-4 text-yellow-400">
+                <!-- Box icon (Heroicons alternative) -->
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-16 h-16 fill-current" viewBox="0 0 24 24">
+                    <path d="M21 16V8a1 1 0 0 0-.553-.894l-8-4a1 1 0 0 0-.894 0l-8 4A1 1 0 0 0 3 8v8a1 1 0 0 0 .553.894l8 4a1 1 0 0 0 .894 0l8-4A1 1 0 0 0 21 16ZM12 5.236 18.764 8 12 10.764 5.236 8 12 5.236ZM5 9.618l6 2.667v6.146l-6-3V9.618Zm8 8.813v-6.146l6-2.667v5.813l-6 3Z" />
+                </svg>
+            </div>
+
+            <!-- Text content -->
+            <div class="text-center">
+                <h2 class="text-3xl font-bold mb-3">TCZPOS</h2>
+
+                <!-- Spinner -->
+                <div class="flex justify-center gap-2">
+                    <div class="w-4 h-4 bg-yellow-400 rounded-full animate-bounce"></div>
+                    <div class="w-4 h-4 bg-yellow-400 rounded-full animate-bounce [animation-delay:0.2s]"></div>
+                    <div class="w-4 h-4 bg-yellow-400 rounded-full animate-bounce [animation-delay:0.4s]"></div>
+                </div>
+
+                <p class="text-gray-400 mt-3 text-xs uppercase tracking-wider">
+                    Initializing System...
+                </p>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Error UI -->
+    <div id="blazor-error-ui" class="hidden bg-red-600 text-white p-4 text-center">
+        An unhandled error has occurred.
+        <a href="." class="underline ml-2">Reload</a>
+        <span class="ml-2 cursor-pointer">🗙</span>
+    </div>
+
+    <script src="_content/CurrieTechnologies.Razor.Vibration/vibration.js"></script>
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+    
+</body>
+</html>

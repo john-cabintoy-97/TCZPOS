@@ -1,0 +1,14 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.Authorization
+@using TCZPOS.Components.Scanner
+@attribute [Authorize(Roles = "Owner,AdminStaff,Cashier,Inventory")]
+@inject NavigationManager nav
+@inject AlertServices Alert
+
+<div class="p-6 min-h-screen bg-slate-50">
+    
+</div>
+
+@code {
+    
+}

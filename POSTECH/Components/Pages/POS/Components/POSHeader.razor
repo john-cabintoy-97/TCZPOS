@@ -1,0 +1,67 @@
+﻿<div class="z-20 flex flex-col bg-[#1a252f] p-4 shadow-xl lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+    
+    @* TOP: Cashier Profile *@
+    <div class="flex items-center gap-3 pb-3 lg:pb-0">
+       
+    
+        <div class="h-10 w-10 flex-none rounded-full border-2 border-slate-500 bg-slate-700 shadow-inner flex items-center justify-center overflow-hidden">
+            @if (!string.IsNullOrWhiteSpace(CashierName))
+            {
+                <span class="text-xs font-black text-white uppercase tracking-tighter">
+                    @GetInitials(CashierName)
+                </span>
+            }
+            else
+            {
+                <i class="fas fa-user text-slate-500 text-xs"></i>
+            }
+        </div>
+        <div class="min-w-0 flex flex-col">
+            <p class="text-[10px] leading-none font-bold text-orange-400 uppercase tracking-widest">Operator</p>
+            <p class="truncate text-xs font-black text-white">
+                @CashierName | <span class="text-slate-500">@TerminalName</span>
+            </p>
+        </div>
+    </div>
+
+    @* THE SEPARATOR: Visible only on mobile/tablet *@
+    <div class="mb-3 h-[1px] w-full bg-slate-700 lg:hidden"></div>
+
+    <div class="flex items-center justify-between lg:flex-none lg:justify-end">
+        <span class="text-[10px] font-bold uppercase text-slate-500 lg:hidden">Amount Due</span>
+        
+        <div class="flex flex-col items-end">
+            <span class="whitespace-nowrap font-mono text-3xl font-black text-[#a3ff00] drop-shadow-[0_0_8px_rgba(163,255,0,0.4)] lg:text-4xl">
+                ₱ @NetTotal.ToString("N2")
+            </span>
+            <span class="text-[9px] font-bold uppercase text-slate-500 lg:text-right">
+                Inclusive of VAT (₱ @VatAmount.ToString("N2"))
+            </span>
+        </div>
+    </div>
+
+</div>
+
+@code {
+    [Parameter] public string CashierName { get; set; } = "Staff";
+    [Parameter] public string TerminalName { get; set; } = "T-01";
+    [Parameter] public string TransactionNo { get; set; } = "---";
+    [Parameter] public string TransactionDate { get; set; } = "---";
+    [Parameter] public decimal NetTotal { get; set; }
+    [Parameter] public decimal VatAmount { get; set; }
+
+    private string GetInitials(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "??";
+
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+    
+        if (parts.Length >= 2)
+        {
+            // Returns first letter of first word and first letter of LAST word
+            return $"{parts[0][0]}{parts[^1][0]}".ToUpper();
+        }
+    
+        return name.Length >= 2 ? name.Substring(0, 2).ToUpper() : name.ToUpper();
+    }
+}

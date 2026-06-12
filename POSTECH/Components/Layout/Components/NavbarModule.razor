@@ -1,0 +1,177 @@
+﻿@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager NavManager
+@using TCZPOS.Components.Guard.Interface
+@inject IGatekeeperService Gatekeeper
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+
+<header class="flex h-16 flex-none items-center justify-between border-b border-gray-700 bg-[#0d1117] px-6 shadow-md">
+    
+    <button class="rounded-lg p-2 text-gray-300 transition-colors hover:bg-gray-700 md:hidden"
+            @onclick="ToggleSidebarModule">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+    </button>
+
+    <div class="flex flex-1 justify-center md:hidden">
+        <span class="text-lg font-black tracking-[0.2em] text-white uppercase">
+            TCZ-<span class="text-orange-500">POS</span>
+        </span>
+    </div>
+
+    <div class="relative ml-auto flex items-center gap-4">
+        
+        <div class="hidden text-right sm:block">
+            <p class="text-xs font-medium text-gray-400">Welcome back,</p>
+            <p class="text-sm font-bold text-white">
+                Hi, @(Username?.ToUpper() ?? "USER")
+            </p>
+        </div>
+
+        @* Profile Toggle Button *@
+        <button @onclick="ToggleDropdown" class="relative focus:outline-none">
+            <AvatarModule Username="@Username" Size="md" ShowStatus="true" />
+        </button>
+
+        @* Dropdown Menu *@
+        @if (_isDropdownOpen)
+        {
+            @* Transparent overlay to close dropdown when clicking outside *@
+            <div class="fixed inset-0 z-10" @onclick="ToggleDropdown"></div>
+
+            <div class="ring-opacity-5 animate-in fade-in zoom-in absolute top-12 right-0 z-20 mt-2 w-48 origin-top-right rounded-xl border border-gray-700 bg-gray-800 py-2 shadow-2xl ring-1 ring-black duration-100">
+                <div class="mb-1 border-b border-gray-700 px-4 py-2">
+                    <p class="text-xs font-semibold tracking-wider text-gray-400 uppercase">Account</p>
+                </div>
+
+                <a href="/profile" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 transition-colors hover:bg-gray-700 hover:text-white">
+                    <i class="fas fa-user-circle w-5 text-center text-blue-400"></i> My Profile
+                </a>
+                
+                <a href="/settings" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 transition-colors hover:bg-gray-700 hover:text-white">
+                    <i class="fas fa-cog w-5 text-center text-gray-400"></i> Settings
+                </a>
+
+                <hr class="my-1 border-gray-700" />
+
+                <button @onclick="() => _showSecurityModal = true"
+                        class="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors">
+                    <i class="fas fa-sign-out-alt w-5 text-center"></i> Logout Options
+                </button>
+            </div>
+        }
+    </div>
+</header>
+@if (_showSecurityModal)
+{
+    <Modal IsVisible="_showSecurityModal"
+           Title="Security Session"
+           OnClose="() => _showSecurityModal = false"
+           ShowFooter="true">
+    
+        <ChildContent>
+            <div class="p-8 text-center bg-gray-800">
+                <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-orange-500/10 text-orange-500">
+                    <i class="fas @(Gatekeeper.MasterAccount?.IsStaffGateEnabled == true ? "fa-user-shield" : "fa-sign-out-alt") text-3xl"></i>
+                </div>
+            
+                <h4 class="text-white font-black uppercase tracking-tight text-lg">
+                    @(Gatekeeper.MasterAccount?.IsStaffGateEnabled == true ? "Staff Gate Active" : "End Session")
+                </h4>
+            
+                <p class="text-gray-400 text-sm mt-2">
+                    @if (Gatekeeper.MasterAccount?.IsStaffGateEnabled == true)
+                    {
+                        <span>The system is currently managed by <strong>@Username</strong>. Would you like to switch staff or sign out completely?</span>
+                    }
+                    else
+                    {
+                        <span>Are you sure you want to log out from <strong>@Username</strong>? This will end your current session.</span>
+                    }
+                </p>
+            </div>
+        </ChildContent>
+
+        <CustomFooter>
+            <div class="flex w-full gap-3">
+                @if (Gatekeeper.ActiveStaff?.Role == StaffRole.Cashier
+                || Gatekeeper.ActiveStaff?.Role == StaffRole.Inventory
+                || Gatekeeper.ActiveStaff?.Role == StaffRole.AdminStaff)
+                {
+                    
+                    @* SWITCH STAFF / LOCK *@
+                    <button @onclick="HandleSwitchStaff"
+                            class="flex-1 rounded-xl bg-slate-700 px-4 py-3 text-xs font-black text-white uppercase tracking-widest hover:bg-slate-600 transition-all">
+                        <i class="fas fa-users-cog mr-2"></i> Switch Staff
+                    </button>   
+                   
+                }
+                
+                @if (Gatekeeper.ActiveStaff?.Role == StaffRole.Owner)
+                {
+                    @if (Gatekeeper.MasterAccount?.IsStaffGateEnabled == true)
+                    {
+                        <button @onclick="HandleSwitchStaff"
+                                class="flex-1 rounded-xl bg-slate-700 px-4 py-3 text-xs font-black text-white uppercase tracking-widest hover:bg-slate-600 transition-all">
+                            <i class="fas fa-users-cog mr-2"></i> Switch Staff
+                        </button> 
+                    }
+
+                    @* FULL LOGOUT *@
+                    <button @onclick="HandleLogout"
+                            class="@(Gatekeeper.MasterAccount?.IsStaffGateEnabled == true ? "flex-1" : "w-full")
+                        rounded-xl bg-red-600 px-4 py-3 text-xs font-black text-white uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg shadow-red-900/20">
+                        <i class="fas fa-power-off mr-2"></i> Full Logout
+                    </button>
+                }
+            </div>
+        </CustomFooter>
+    </Modal>
+}
+@code {
+    [Parameter] public EventCallback ToggleSidebarModule { get; set; }
+    [Parameter] public string? Username { get; set; }
+    private bool _showSecurityModal = false;
+    private bool _isDropdownOpen = false;
+
+    private void ToggleDropdown() => _isDropdownOpen = !_isDropdownOpen;
+    private void HandleSwitchStaff()
+    {
+        Gatekeeper.LogoutStaff();
+        _showSecurityModal = false;
+        
+        // 2. Redirect to the PIN/Access Portal layer
+        NavManager.NavigateTo("/auth/access-portal");
+    }
+    private void HandleLogout()
+    {
+        NavManager.NavigateTo("/auth/logout", forceLoad: true);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        
+        if (user.Identity is not null && user.Identity.IsAuthenticated)
+        {
+            // 1. Extract specific data into an anonymous object for JSON logging
+            var userData = new
+            {
+                Username = user.Identity.Name,
+                AuthenticationType = user.Identity.AuthenticationType,
+                IsAuthenticated = user.Identity.IsAuthenticated,
+                // Pull all claims into a readable list
+                Claims = user.Claims.Select(c => new { c.Type, c.Value }).ToList(),
+                // Specifically grab the role for quick viewing
+                Role = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+            };
+
+            // 2. Log it to the browser console as a JSON object
+            await JS.InvokeVoidAsync("console.log", "🔓 TCZPOS User Session (JSON):", userData);
+            // Username = user.Identity.Name;
+
+        }
+    }
+}

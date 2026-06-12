@@ -1,0 +1,418 @@
+﻿@inherits LayoutComponentBase
+@using TCZPOS.Components.Guard.Interface
+@using Microsoft.AspNetCore.Components.Authorization
+@using TCZPOS.Components.Layout.Components
+@using TCZPOS.Components.Modules
+@using TCZPOS.Components.Pages.Extension
+@inject ConnectionStateProvider State
+@inject TCZPOS.Components.Providers.AuthStateProvider AuthProvider
+@inject NavigationManager NavManager
+@inject TranslationService Trans
+@inject UserServices userService
+@inject IGatekeeperService Gatekeeper
+@inject AlertServices Alert
+@inject IJSRuntime JS
+@using System.Text;
+
+<AuthorizeView>
+    <Authorized>
+        @if (NavManager.Uri.Contains("/auth/"))
+        {
+            @Body
+        }
+        else if (Gatekeeper.ActiveStaff != null)
+        {
+            <div class="flex h-screen bg-[#1a252f] text-white">
+                <aside class="@(_sidebarCollapsed ? "-translate-x-full" : "translate-x-0")
+                    fixed inset-y-0 left-0 z-50 w-64 bg-[#1a252f] shadow-xl transition-transform duration-300
+                    ease-in-out md:relative md:flex md:translate-x-0 md:flex-col">
+
+                    <div class="flex h-16 items-center justify-between border-b border-gray-700 px-4">
+                        <div class="flex items-center gap-2 ps-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M21 16V8a1 1 0 0 0-.553-.894l-8-4a1 1 0 0 0-.894 0l-8 4A1 1 0 0 0 3 8v8a1 1 0 0 0 .553.894l8 4a1 1 0 0 0 .894 0l8-4A1 1 0 0 0 21 16Z" />
+                            </svg>
+                            <span class="text-lg font-black tracking-[0.2em] text-white uppercase">
+                                TCZ-<span class="text-orange-500">POS</span>
+                            </span>
+                        </div>
+                        <button class="text-gray-400 md:hidden" @onclick="ToggleSidebar">
+                            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+
+                    <nav class="flex-1 space-y-2 overflow-y-auto px-4 py-4">
+                        <SidebarModule MenuItems="MenuItems" HandlePairingResult="HandlePairing" OnScannerClick="() => _showModal = true" />
+                    </nav>
+                </aside>
+
+                <div class="flex flex-1 flex-col min-w-0 bg-white">
+                    <NavbarModule ToggleSidebarModule="ToggleSidebar" Username="@context.User.Identity?.Name" />
+                    <main class="flex-1 overflow-hidden">
+                        <div class="h-full w-full overflow-y-auto">
+                            @if (Gatekeeper.ActiveStaff?.Role == StaffRole.Cashier && NavManager.Uri == NavManager.BaseUri)
+                            {
+                                <div class="h-full w-full flex items-center justify-center bg-gray-50">
+                                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
+                                </div>
+                            }
+                            else
+                            {
+                                @Body
+                            }
+                        </div>
+                    </main>
+                </div>
+            </div>
+        }
+        else
+        {
+            @* 3. TRANSITION STATE: Master is logged in, but app is figuring out the next move *@
+            <div class="h-screen w-screen bg-[#1a252f] flex items-center justify-center">
+                <div class="flex flex-col items-center gap-4">
+                    <div class="animate-pulse text-orange-500 font-black tracking-widest">SECURE LOADING...</div>
+                    <div class="h-1 w-32 bg-slate-800 rounded-full overflow-hidden">
+                        <div class="h-full bg-orange-500 animate-[loading_2s_ease-in-out_infinite]"></div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* Modals & Popups stay inside Authorized but outside the flex layout for Z-index safety *@
+        @if (!_sidebarCollapsed)
+        {
+            <div class="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden" @onclick="ToggleSidebar"></div>
+        }
+        @if (_showModal)
+        {
+            <Modal customCss="!rounded-br-[15px] !rounded-bl-[15px] !bg-[#0D1117]"
+                   IsVisible="_showModal" 
+                   Title="Connect Wireless Scanner" OnClose="() => _showModal = false" ShowFooter="false" OnConfirm="HandleConfirm">
+               <div>
+                    <Pairing />
+               </div>
+            </Modal>
+        }
+        <AlertPopup />
+    </Authorized>
+
+    <NotAuthorized>
+        @* 4. NOT LOGGED IN: Simple container for the Login Page *@
+        <div class="h-screen w-screen bg-[#0D1117]">
+            @Body
+            <AlertPopup />
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+
+@code {
+    private bool _isMobile = false;
+    private bool _showModal = false;
+
+    private void HandleConfirm()
+    {
+        _showModal = false;
+    }
+    private async Task HandlePairing(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code) || !code.Contains("|")) return;
+
+        var parts = code.Split('|');
+
+        // We now expect 6 parts: HEADER|IP|PORT|TOKEN|TIMESTAMP|HASH
+        if (parts.Length < 6 || parts[0] != "TCZPOS_AUTH")
+        {
+            Alert.Notify("Error: Invalid QR Code format.");
+            return;
+        }
+
+        string ip = parts[1];
+        string portStr = parts[2];
+        string token = parts[3];
+        string timestampStr = parts[4];
+        string incomingHash = parts[5];
+
+        if (long.TryParse(timestampStr, out long ticks))
+        {
+            var qrTime = new DateTime(ticks, DateTimeKind.Utc);
+            if ((DateTime.UtcNow - qrTime).TotalSeconds > 60)
+            {
+                Alert.Notify("Pairing Failed: QR Code has expired. Please look at the main PC for a fresh code.");
+                return;
+            }
+        }
+        else
+        {
+            Alert.Notify("Pairing Failed: Invalid timestamp structure.");
+            return;
+        }
+
+        string appSecret = "APP_SECRET";
+        string rawData = $"{ip}:{portStr}:{token}:{timestampStr}:{appSecret}";
+        string expectedHash = Convert.ToBase64String(Encoding.UTF8.GetBytes(rawData))[..8];
+
+        if (incomingHash != expectedHash)
+        {
+            Alert.Notify("Security Alert: QR Code verification failed. Connection rejected.");
+            return;
+        }
+
+        if (int.TryParse(portStr, out int port))
+        {
+            State.Port = port;
+        }
+
+        State.IpAddress = ip;
+        State.Token = token;
+        State.IsPaired = true;
+
+        Alert.Notify("Successfully Authenticated & Paired!");
+
+        await Task.Delay(100);
+        NavManager.NavigateTo("/test");
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var userAgent = await JS.InvokeAsync<string>("eval", "navigator.userAgent");
+            _isMobile = userAgent.Contains("Android") || userAgent.Contains("iPhone");
+
+            // if (!_isMobile)
+            // {
+            //     Match the exact text in your MenuItems list
+            //     MenuItems.RemoveAll(x => x.Text == "QRCode Pairing");
+            //     MenuItems.RemoveAll(x => x.Text == "Wireless Scanner");
+            
+            // }
+            // else
+            // {
+            //     MenuItems.RemoveAll(x => x.Text == "Community Chat");
+            //  }
+            ApplyRoleSecurity();
+            // ChangeLanguage("Bisaya");
+            StateHasChanged();
+        }
+    }
+   
+
+    protected override async Task OnInitializedAsync()
+    {
+        NavManager.LocationChanged += HandleLocationChanged;
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true && Gatekeeper.ActiveStaff == null)
+        {
+            // Check the gate status immediately
+            if (Gatekeeper.MasterAccount != null && !Gatekeeper.MasterAccount.IsStaffGateEnabled)
+            {
+                // Gate is OFF (0): Log in as owner automatically
+                await Gatekeeper.AuthenticateAsOwner(Gatekeeper.MasterAccount);
+            
+                // If we are currently stuck on an auth page, move to dashboard
+                if (NavManager.Uri.Contains("/auth/"))
+                {
+                    NavManager.NavigateTo("/");
+                }
+            }
+            else if (!NavManager.Uri.Contains("/auth/"))
+            {
+                // Gate is ON: Redirect to portal
+                NavManager.NavigateTo("/auth/access-portal");
+            }
+        }
+    }
+
+   
+    private void ApplyRoleSecurity()
+    {
+        var role = Gatekeeper.ActiveStaff?.Role;
+
+        if (role == StaffRole.Owner || role == StaffRole.AdminStaff)
+        {
+            // Owners and Admins see everything.
+            // You might want to hide "System AI" or "Hardware" from AdminStaff
+            // if only the Owner should touch those.
+            if (role == StaffRole.AdminStaff)
+            {
+                // Optional: Hide highly sensitive system settings from Admins
+                // MenuItems.RemoveAll(x => x.Text == "System AI");
+            }
+        }
+        else if (role == StaffRole.Inventory)
+        {
+            // Inventory role only sees Stock and Procurement
+            var allowed = new[] { "Dashboard", "Stock Control", "Procurement", "Wireless Scanner" };
+            MenuItems.RemoveAll(x => !allowed.Contains(x.Text));
+        }
+        else if (role == StaffRole.Cashier)
+        {
+            // Cashier only sees POS and basic Sales History
+            var allowed = new[] { "POS Terminal", "Customer Ledger", "Community Chat" };
+            MenuItems.RemoveAll(x => !allowed.Contains(x.Text));
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        // 1. Only run this if the Master Account is logged in but no Staff is active yet
+        if (user.Identity?.IsAuthenticated == true && Gatekeeper.ActiveStaff == null)
+        {
+            // 2. We need to make sure MasterAccount data is loaded
+            if (Gatekeeper.MasterAccount == null)
+            {
+                // Fetch it if it's missing (helps after an app restart)
+                var master = await userService.GetMasterAccountAsync();
+                if (master != null) Gatekeeper.InitializeMasterAccount(master);
+            }
+
+            if (Gatekeeper.MasterAccount != null)
+            {
+                // 3. CHECK THE GATE STATUS
+                if (!Gatekeeper.MasterAccount.IsStaffGateEnabled)
+                {
+                    // GATE IS OFF: Auto-login as Owner
+                    await Gatekeeper.AuthenticateAsOwner(Gatekeeper.MasterAccount);
+                
+                    // If stuck on auth page, go home
+                    if (NavManager.Uri.Contains("/auth/"))
+                    {
+                        NavManager.NavigateTo("/");
+                    }
+                }
+                else
+                {
+                    // GATE IS ON: Force redirect to portal if they try to access internal pages
+                    if (!NavManager.Uri.Contains("/auth/"))
+                    {
+                        NavManager.NavigateTo("/auth/access-portal");
+                    }
+                }
+            }
+        }
+    }
+    
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (!_sidebarCollapsed)
+        {
+            _sidebarCollapsed = true;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        NavManager.LocationChanged -= HandleLocationChanged;
+    }
+
+    private bool _sidebarCollapsed = true;
+
+    private void ToggleSidebar()
+    {
+        _sidebarCollapsed = !_sidebarCollapsed;
+    }
+
+    private void ChangeLanguage(string? lang)
+    {
+        if (!string.IsNullOrEmpty(lang))
+        {
+            Trans.CurrentLanguage = lang;
+            StateHasChanged(); // This forces SidebarModule to re-render with new translations
+        }
+    }
+    private List<NavMenuItem> MenuItems = new()
+    {
+        // --- PRIMARY ACTION ---
+            // --- OVERVIEW ---
+        new NavMenuItem { Text = "Dashboard", Href = "/", Icon = "fas fa-chart-line", IconColor = "text-blue-400" },
+
+
+        // Pulled out of the group to be the very first item the user sees
+        new NavMenuItem { Text = "POS Terminal", Href = "/pos/terminal", Icon = "fas fa-cash-register", IconColor = "text-rose-400" },
+
+        // --- SALES OPERATIONS ---
+        new NavMenuItem {
+            Text = "Sales Operations",
+            Icon = "fas fa-history",
+            IconColor = "text-sky-400",
+            SubItems = new List<NavMenuItem> {
+                new NavMenuItem { Text = "Void & Transaction Logs", Href = "/pos/logs" },
+                new NavMenuItem { Text = "Hold List", Href = "/pos/hold" },
+                new NavMenuItem { Text = "Sales History", Href = "/pos/history" }
+            }
+        },
+
+        new NavMenuItem {
+        Text = "Customer Ledger",
+        Icon = "fas fa-user-tag",
+        IconColor = "text-orange-400",
+        SubItems = new List<NavMenuItem> {
+            new NavMenuItem { Text = "Credit (Utang) Records", Href = "/customers/credit" },
+            new NavMenuItem { Text = "Payment Collection", Href = "/customers/payments" },
+            new NavMenuItem { Text = "Customer List", Href = "/customers/list" }
+        }
+    },
+
+        // --- STOCK CONTROL ---
+        new NavMenuItem {
+            Text = "Stock Control",
+            Icon = "fas fa-boxes",
+            IconColor = "text-amber-400",
+            SubItems = new List<NavMenuItem> {
+                new NavMenuItem { Text = "Products", Href = "/inventory/product" },
+                new NavMenuItem { Text = "Stock Adjustment", Href = "/inventory/adjustment" },
+                new NavMenuItem { Text = "Categories & Brands", Href = "/inventory/categories-brands" },
+                new NavMenuItem { Text = "Price Batch Update", Href = "/inventory/price-update" }
+            }
+        },
+
+        // --- PROCUREMENT ---
+        new NavMenuItem {
+            Text = "Procurement",
+            Icon = "fas fa-truck-loading",
+            IconColor = "text-emerald-500",
+            SubItems = new List<NavMenuItem> {
+                new NavMenuItem { Text = "Suppliers (Vendors)", Href = "/procurement/vendors" },
+                new NavMenuItem { Text = "Purchase Orders", Href = "/procurement/orders" },
+                new NavMenuItem { Text = "Receiving Log", Href = "/procurement/receiving" }
+            }
+        },
+
+        // --- TOOLS ---
+        new NavMenuItem { Text = "Wireless Scanner", Id = "wireless-scanner-btn", Icon = "fas fa-mobile-alt", IconColor = "text-cyan-400" },
+        new NavMenuItem { Text = "QRCode Pairing", Id = "pairing-scanner", Icon = "fas fa-qrcode", IconColor = "text-purple-400" },
+
+        // --- REPORTS & ANALYTICS ---
+        new NavMenuItem {
+            Text = "Data & Insights",
+            Icon = "fas fa-file-invoice-dollar",
+            IconColor = "text-orange-400",
+            SubItems = new List<NavMenuItem> {
+                new NavMenuItem { Text = "Sales Reports", Href = "/reports/sales" },
+                new NavMenuItem { Text = "Expiry Watchlist", Href = "/reports/expiry" },
+                new NavMenuItem { Text = "Profit/Loss Analysis", Href = "/reports/profit" }
+            }
+        },
+
+        // --- CONFIGURATION ---
+        new NavMenuItem {
+            Text = "Configuration",
+            Icon = "fas fa-cogs",
+            IconColor = "text-slate-500",
+            SubItems = new List<NavMenuItem> {
+                new NavMenuItem { Text = "Staff & Permissions", Href = "/config/staff" },
+                new NavMenuItem { Text = "Hardware Settings", Href = "/config/hardware" },
+                new NavMenuItem { Text = "System AI", Href = "/config/ai" }
+            }
+        },
+
+        new NavMenuItem { Text = "Community Chat", Href = "/pc-chat", Icon = "fas fa-comments", IconColor = "text-pink-400" }
+    };
+}

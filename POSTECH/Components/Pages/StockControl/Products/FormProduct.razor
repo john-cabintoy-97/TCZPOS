@@ -1,0 +1,482 @@
+﻿@using TCZPOS.Components.Models
+@using TCZPOS.Components.Services
+@using TCZPOS.Components.Modules
+@using TCZPOS.Components.Modules.UX
+@using TCZPOS.Components.Scanner
+@using TCZPOS.Components.AI
+@inject CategoryServices categoryService
+@inject BrandServices brandService
+@inject VendorServices vendorService
+@inject ProductAIService aiService
+@inject NavigationManager nav
+@inject AlertServices Alert
+
+<div class="flex-1 min-h-0 overflow-y-auto  custom-scrollbar ">
+    <div class="mx-auto  sm:p-2 lg:p-5">
+        
+        @* --- SCANNER INPUT --- *@
+        <div class="rounded-2xl pe-5 border border-gray-700 bg-gray-800 p-4 mb-5">
+            <h4 class="text-[10px] font-black text-orange-500 uppercase tracking-[0.2em] mb-4">Scanner Input</h4>
+            <div class="flex flex-col md:flex-row  gap-6">
+                <div class="flex-1 w-full space-y-2">
+                    <label class="text-[10px] font-bold text-gray-500 uppercase px-2">Barcode Entry</label>
+                    <div class="flex gap-2">
+                        <div class="flex-1">
+                            <Input @bind-Value="Product.Barcode" Placeholder="Scan or Type..." IconClass="fas fa-barcode" />
+                        </div>
+                        <ScannerButton Variant="ButtonVariant.IconOnly"
+                                       Icon="fas fa-camera text-sm"
+                                       ScanMode="INVENTORY"
+                                       OnManualEntryRequested="ManualEntryRequested"
+                                       IconBg="bg-orange-600"
+                                       class="h-[46px] w-[46px] flex items-center justify-center rounded-xl bg-orange-600 text-white shadow-lg shadow-orange-900/20 active:scale-95 transition-all"
+                                       OnScanResult="HandleScanResult" />
+
+                        
+                    </div>
+                </div>
+                
+                <div class="flex-1 w-full space-y-2">
+                    <label class="text-[10px] font-bold text-gray-500 uppercase px-2">System P-Code</label>
+                    <Input @bind-Value="Product.Pcode" IsReadOnly="true" IconClass="fas fa-terminal" HelperText="AUTO-GENERATED" />
+                </div>
+            </div>
+        </div>
+
+        @* --- GENERAL & CLASSIFICATION --- *@
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-12 mb-6 mt-6 items-start">
+            <div class="space-y-6">
+                <h4 class="text-[10px] font-black text-orange-500 uppercase tracking-[0.2em] px-2 mb-3">General Information</h4>
+        
+                <div class="flex items-end gap-2">
+                    <div class="flex-1">
+                        <div class="md:hidden flex items-center gap-1.5 mb-1 ml-1">
+                            <i class="fas fa-magic text-[10px] text-cyan-500"></i>
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                                Smart Product Name Extractor
+                            </span>
+                        </div>
+                        <Input Label="Product Name"
+                               @bind-Value="Product.Name"
+                               @oninput="OnProductNameChanged"
+                               ContainerClass="mb-0" 
+                               Placeholder="Enter full item name..."
+                               IconClass="fas fa-box-open" />
+                    </div>
+
+                    <div class="md:hidden">
+                        <ProductTextExtractorScanner Variant="ButtonVariant.IconOnly"
+                                                  Icon="fas fa-camera text-sm"
+                                                  IconBg="bg-orange-600"
+                                                  class="h-[46px] w-[46px] flex items-center justify-center rounded-xl bg-orange-600 text-white shadow-lg shadow-orange-900/20 active:scale-95 transition-all mb-[2px]"
+                                                  OnScanResult="HandleProcessResult" />
+                    </div>
+                </div>
+
+                @if (_showSuggestion && _suggestedShortNames.Any())
+                {
+                    <div class="animate-in fade-in slide-in-from-top-2 duration-200 mt-3">
+                        <div class="rounded-xl border border-orange-500/30 bg-orange-500/10 p-3">
+                             <div class="flex items-center gap-2 mb-1">
+                                <i class="fas fa-info-circle text-xs text-orange-400"></i>
+                                <p class="text-[10px] text-gray-500 leading-tight mb-3">
+                                    This tool uses OCR to extract text from product labels. Use the suggestions below to quickly set a
+                                    <strong>Short Name</strong>—optimized for small thermal receipts and quick POS searches.
+                                </p> <span class="text-[8px] @(aiService.IsModelTrained ? "bg-emerald-500/20 text-emerald-400" : "bg-yellow-500/20 text-yellow-400") px-2 py-0.5 rounded-full">
+                                    @(aiService.IsModelTrained ? "Trained" : "Learning")
+                                </span>
+                            </div>
+
+                            <div class="flex flex-wrap gap-2">
+                                @foreach (var name in _suggestedShortNames)
+                                {
+                                    <button type="button"
+                                            @onclick="() => AcceptSpecificSuggestion(name)"
+                                            class="px-2 py-1.5 rounded-lg border border-orange-700 bg-orange/40 hover:border-orange-500 hover:bg-orange-500/10 transition-all active:scale-95 text-xs font-mono font-bold text-gray-800">
+                                        @name
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+                <ComboBox TItem="CategoryModels"
+                          Label="Category"
+                          BgClass="p-2"
+                          TValue="int"
+                          BorderClass="border-gray-700"
+                          ContainerClass="mb-3 "
+                          Value="Product.CategoryId"
+                          ValueChanged="@((val) => Product.CategoryId = Convert.ToInt32(val))"
+                          Items="categoryService.Categories"
+                          OnQuickAdd='() => nav.NavigateTo("/inventory/categories-brands?tab=Categories")'
+                          ValueSelector="@(b => b.Id)"
+                          SearchSelector="@(c => c.Name)">
+                    <ItemTemplate>@context.Name</ItemTemplate>
+                </ComboBox>
+            </div>
+
+            @* --- COLUMN 2: CLASSIFICATION --- *@
+            <div class="space-y-6">
+                <h4 class="text-[10px] font-black text-orange-500 mb-3 uppercase tracking-[0.2em] px-2">Classification</h4>
+        
+                <ComboBox TItem="BrandModels"
+                          Label="Brand"
+                          BgClass="p-2"
+                          BorderClass="border-gray-700"
+                          ContainerClass="mb-3"
+                          Value="Product.BrandId"
+                          TValue="int?"
+                          ValueChanged="@((val) => Product.BrandId = Convert.ToInt32(val))"
+                          OnQuickAdd='() => nav.NavigateTo("/inventory/categories-brands?tab=Brands")'
+                          Items="brandService.BrandList"
+                          ValueSelector="@(b => b.Id)"
+                          SearchSelector="@(b => b.Name)">
+                    <ItemTemplate>@context.Name</ItemTemplate>
+                </ComboBox>
+                
+                <ComboBox TItem="VendorModels"
+                          Label="Supplier"
+                          BgClass="p-2"
+                          BorderClass="border-gray-700"
+                          ContainerClass="mb-3"
+                          TValue="int"
+                          Value="Product.VendorId"
+                          ValueChanged="@((val) => Product.VendorId = Convert.ToInt32(val))"
+                          Items="vendorService.DataList"
+                          ValueSelector="@(b => b.Id)"
+                          SearchSelector="@(v => v.Name)">
+                    <ItemTemplate>@context.Name</ItemTemplate>
+                </ComboBox>
+            </div>
+        </div>
+        @* --- PERISHABLES & LOGISTICS --- *@
+        <div class="rounded-2xl border  mb-5 border-gray-700 bg-gray-800 p-4 mt-6 relative ">
+            <h4 class="mb-4 text-[10px] font-black text-orange-500 uppercase tracking-[0.2em]">Logistics & Expiry</h4>
+    
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                @* Expiry Toggle *@
+                <div class="flex items-center gap-4 px-2 py-3 bg-black/20 rounded-xl border border-gray-700/50">
+                    <div class="relative inline-flex items-center cursor-pointer">
+                        <input id="expiry-toggle"
+                               type="checkbox"
+                               checked="@Product.HasExpiry"
+                               @onchange="@((ChangeEventArgs e) => {
+                                                       if (e.Value is bool val)
+                                                       {
+                                                           Product.HasExpiry = val;
+                                                           StateHasChanged();
+                                                       }
+                                                   })"
+                           class="sr-only peer">
+           
+                    <label for="expiry-toggle" class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600 cursor-pointer"></label>
+    
+                    <span class="ml-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Track Expiry Date</span>
+                </div>
+            </div>
+            @if (Product.HasExpiry)
+            {
+                <div class="animate-in fade-in slide-in-from-left-2 duration-300">
+                    <Input Label="Expiration Date"
+                           Type="date"
+                           @bind-Value="_expiryProxy"
+                           IconClass="fas fa-calendar-times"
+                           HelperText="Product will be flagged near this date" />
+                </div>
+            }
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
+            <ComboBox TItem="string"
+                      Label="Unit of Measure"
+                      Items="_unitOptions"
+                      BgClass="p-2"
+                      TValue="string"
+                      BorderClass="border-gray-700"
+                      Value="Product.Unit"
+                      ValueChanged="@((val) => Product.Unit = val?.ToString() ?? string.Empty)" Placeholder="Select unit..."
+                      IconClass="fas fa-balance-scale"
+                      SearchSelector="@(u => u)">
+                <ItemTemplate>@context</ItemTemplate>
+            </ComboBox>
+            <Input Label="Reorder Point" @bind-Value="_reorderProxy" Type="number" IconClass="fas fa-bell" />
+        </div>
+    </div>
+
+
+    @* --- FINANCIALS & STOCK --- *@
+    <div class="rounded-2xl border border-gray-700 bg-gray-800 p-4">
+        <h4 class="mb-4 text-[10px] font-black text-orange-500 uppercase tracking-[0.2em]">Financials & Stock</h4>
+        <div class="grid grid-cols-1 gap-6">
+            <div class="flex flex-colflex w-full flex-col md:flex-row  gap-6">
+                <Input ContainerClass="flex-1 mb-3" Label="Cost Price" @bind-Value="_costProxy" Type="number" IconClass="fas fa-tag" />
+                <Input ContainerClass="flex-1 mb-3" Label="Selling Price" @bind-Value="_sellingProxy" Type="number" IconClass="fas fa-hand-holding-usd" />
+                   
+            </div>
+                    
+            <div class="space-y-2">
+                <Input Label="@($"Current Stock (in {Product.Unit})")"
+                       @bind-Value="_stockProxy"
+                       Type="number"
+                       min="0" Step="0.01"
+                       IconClass="fas fa-boxes"
+                       IsReadOnly="@(Product.Id > 0)"
+                       HelperText="@(Product.Id > 0 ? "Use 'Stock Entry' to adjust levels" : "Initial opening stock")" />
+           
+                @if (Product.Id > 0)
+                {
+                    <p class="text-[9px] text-orange-400 uppercase font-bold px-2 mt-1">
+                        <i class="fas fa-info-circle mr-1"></i> Direct editing disabled for existing records.
+                    </p>
+                }
+            </div>
+
+            <div class="rounded-xl border border-dashed border-gray-700 mt-5 p-4 bg-black/20">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-[10px] font-black text-gray-500 uppercase">Markup (per @Product.Unit)</span>
+                    <span class="font-mono font-bold text-emerald-500">
+                        ₱@((Product.SellingPrice - Product.CostPrice).ToString("N2"))
+                    </span>
+                </div>
+    
+                <div class="border-t border-gray-700/50 my-2"></div>
+
+                <div class="flex justify-between items-center">
+                    <span class="text-[10px] font-black text-gray-500 uppercase">Potential Total Profit</span>
+                    <span class="text-xl font-mono font-bold text-emerald-400">
+                        ₱@(((Product.SellingPrice - Product.CostPrice) * (decimal)Product.StockLevel).ToString("N2"))
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+       
+     
+</div>
+</div>
+
+ 
+@code {
+    [Parameter] public ProductModels Product { get; set; } = new();
+    [Parameter] public string Mode { get; set; } = "new"; // Default to new
+    public AIProductModels AIProduct { get; set; } = new();
+    private List<string> _unitOptions = new() { "pcs", "kg", "g", "ml", "L", "pack", "box", "case", "tray", "set" };
+    private string _suggestedShortName = string.Empty;
+    private Timer? _suggestionDebounceTimer;
+    private bool _isDisposed = false;
+    private List<string> _suggestedShortNames = new(); // Changed to List
+    private bool _showSuggestion = false;
+    private bool _isProcessingSuggestion = false;
+
+    private async Task GetAISuggestion(string productName)
+    {
+        if (_isProcessingSuggestion || _isDisposed) return;
+    
+        _isProcessingSuggestion = true;
+    
+        try
+        {
+            var suggestions = await aiService.SuggestShortNamesAsync(productName, count: 3);
+        
+            if (suggestions.Any())
+            {
+                _suggestedShortNames = suggestions;
+                _showSuggestion = true;
+            }
+            else
+            {
+                _showSuggestion = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Suggestion error: {ex.Message}");
+            _showSuggestion = false;
+        }
+        finally
+        {
+            _isProcessingSuggestion = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void AcceptSpecificSuggestion(string name)
+    {
+        Product.Name = name;
+        AIProduct.ShortName = name;
+        _showSuggestion = false;
+        StateHasChanged();
+    }
+
+    private string _expiryProxy
+    {
+        get => Product.ExpiryDate?.ToString("yyyy-MM-dd") ?? "";
+    
+        set
+        {
+            if (DateTime.TryParse(value, out var parsedDate))
+            {
+                Product.ExpiryDate = parsedDate;
+            }
+            else
+            {
+                Product.ExpiryDate = null;
+            }
+            StateHasChanged();
+        }
+    }
+
+    private string _reorderProxy
+    {
+        get => Product.ReorderPoint.ToString();
+        set => Product.ReorderPoint = double.TryParse(value, out var v) ? v : 10.0;
+    }
+
+    private void HandleScanResult(string scannedCode)
+    {
+        Product.Barcode = scannedCode;
+        StateHasChanged();
+    }
+
+    private void HandleScanConfirm(string confirmedCode)
+    {
+        Product.Barcode = confirmedCode;
+        StateHasChanged();
+    }
+
+    private string _costProxy
+    {
+        get => Product.CostPrice.ToString();
+        set
+        {
+            if (decimal.TryParse(value, out var v))
+            {
+                Product.CostPrice = v;
+                StateHasChanged();
+            }
+        }
+    }
+    
+    private string _sellingProxy
+    {
+        get => Product.SellingPrice.ToString();
+        set
+        {
+            if (decimal.TryParse(value, out var v))
+            {
+                Product.SellingPrice = v;
+                StateHasChanged();
+            }
+        }
+    }
+    
+    private string _stockProxy
+    {
+        get => Product.StockLevel.ToString();
+        set => Product.StockLevel = int.TryParse(value, out var v) ? v : 0;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(
+            categoryService.LoadCategoriesAsync(),
+            brandService.LoadAsync(),
+            vendorService.LoadAsync()
+        );
+        
+        if (!string.IsNullOrEmpty(Product.Name) && string.IsNullOrEmpty(AIProduct.ShortName))
+        {
+            await GetAISuggestion(Product.Name);
+        }
+    }
+
+    private async Task OnProductNameChanged(ChangeEventArgs e)
+    {
+        string newName = e.Value?.ToString() ?? string.Empty;
+        Product.Name = newName;
+        
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            _showSuggestion = false;
+            _suggestedShortName = string.Empty;
+            StateHasChanged();
+            return;
+        }
+        
+        _suggestionDebounceTimer?.Dispose();
+        
+        _suggestionDebounceTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                if (!_isDisposed)
+                {
+                    await GetAISuggestion(newName);
+                }
+            });
+        }, null, 500, Timeout.Infinite);
+    }
+
+    
+    private void DismissSuggestion()
+    {
+        _showSuggestion = false;
+        StateHasChanged();
+    }
+    
+    private async Task ManualEntryRequested()
+    {
+        if (Mode.Equals("update", StringComparison.OrdinalIgnoreCase))
+        {
+            nav.NavigateTo($"/inventory/product/update/{Product.SecureId}");
+        }
+        else
+        {
+            nav.NavigateTo("/inventory/product/new");
+        }
+    }
+    
+    private void HandleProcessResult(string result)
+    {
+        if (!string.IsNullOrEmpty(result))
+        {
+            Product.Name = result;
+        
+            if (string.IsNullOrWhiteSpace(result))
+            {
+                _showSuggestion = false;
+                _suggestedShortName = string.Empty;
+                StateHasChanged();
+                return;
+            }
+        
+            _suggestionDebounceTimer?.Dispose();
+        
+            _suggestionDebounceTimer = new Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (!_isDisposed)
+                    {
+                        await GetAISuggestion(result);
+                    }
+                });
+            }, null, 500, Timeout.Infinite);
+        }
+    }
+
+    public void Dispose()
+    {
+        _isDisposed = true;
+        _suggestionDebounceTimer?.Dispose();
+    }
+
+    public void ResetAI()
+    {
+        _suggestedShortNames.Clear();
+        _showSuggestion = false;
+        StateHasChanged();
+    }
+}

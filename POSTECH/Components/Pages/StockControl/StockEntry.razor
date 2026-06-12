@@ -1,0 +1,501 @@
+﻿@page "/inventory/adjustment"
+@using TCZPOS.Components.Modules.UX
+@using TCZPOS.Components.Modules
+@using TCZPOS.Components.Models
+@inject ProductServices productService
+@inject StockInServices _stockInServices
+@inject VendorServices vendorService
+
+
+<div class="flex h-screen w-full flex-col overflow-hidden font-sans text-white">
+    @* HEADER SECTION *@
+    <div class=" flex flex-col bg-[#1A252F] px-4 py-2 shadow-xl lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+        <div class="flex items-center gap-3 pb-3 lg:pb-0">
+            <h2 class="text-xl font-bold text-white uppercase tracking-tight">Inventory <span class="text-orange-500">Stock Entry</span></h2>
+
+        </div>
+
+        <div class="mb-3 h-px w-full bg-slate-800 lg:hidden"></div>
+
+        <div class="flex flex-row items-center justify-between lg:justify-end gap-4">
+    
+            @* Removed w-full to prevent stacking *@
+            <div class="sm:w-auto rounded border border-orange-500/20 bg-orange-500/10 px-3 py-2">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-wider leading-none">Unique SKUs</p>
+                <p class="text-xl font-black text-white font-mono mt-1">@_stockList.Count.ToString("D2")</p>
+            </div>
+
+            @* Changed text-left to text-right for consistent alignment *@
+            <div class="text-right">
+                <p class="text-[10px] font-black text-orange-400 uppercase tracking-wider leading-none">Total Value to Add</p>
+                <p class="text-xl font-black text-orange-500 font-mono mt-1">₱ @_stockList.Sum(x => x.TotalCost).ToString("N2")</p>
+            </div>
+    
+        </div>
+      
+    </div>
+   
+    @* FILTER & TABLE SECTION *@
+    <div class="flex flex-1 flex-col overflow-hidden bg-white text-slate-800">
+        @* COMPACT FILTER BAR *@
+        <div class="border-b bg-slate-50/50 px-3 py-2">
+            @* Top Row: Search & Reset *@
+            <div class="mb-2 flex w-full items-center gap-2">
+                <div class="flex flex-1 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:ring-1 focus-within:ring-orange-500 focus-within:border-orange-500 shadow-sm transition-all">
+                    <input @bind="_entryHeader.ReferenceNumber"
+                           placeholder="INV-00000"
+                           type="text"
+                           readonly
+                           class="w-full px-3 py-2 text-sm font-mono font-bold text-blue-700 outline-none bg-slate-50/50" />
+
+                    <button type="button"
+                            @onclick="GenerateReferenceNumber"
+                            class="flex items-center bg-orange-400 px-4 border-l border-slate-200 text-white  transition-colors group">
+                        <i class="fas fa-magic text-xs group-hover:scale-110 transition-transform"></i>
+                    </button>
+                </div>
+               
+            </div>
+
+            @* Bottom Row: Dates, Sort, and Tabs *@
+            <div class="flex flex-col gap-3">
+                <div class="flex flex-wrap items-end gap-2">
+        
+                    @* Changed flex-1 to flex-1 and matched min-w *@
+                    <div class="flex flex-col gap-1 flex-1 min-w-[200px]">
+                        <label class="text-[9px] font-black text-slate-400 uppercase ml-1">Entry Date</label>
+                        <div class="flex items-center rounded-lg border border-slate-300 bg-white p-1 h-[42px]">
+                            <input type="date" @bind="_dateProxy" @bind:format="yyyy-MM-dd"
+                                   class="w-full px-2 py-1 text-xs font-bold text-slate-600 outline-none bg-transparent" />
+                        </div>
+                    </div>
+
+                    @* Changed flex-[2] to flex-1 and matched min-w *@
+                    <div class="flex flex-col gap-1 flex-1 min-w-[200px]">
+                        <label class="text-[9px] font-black text-slate-400 uppercase ml-1">Source Vendor</label>
+                        <ComboBox TItem="VendorModels"
+                                  TValue="int?"
+                                  ValueSelector="@(v => (int?)v.Id)"
+                                  Items="vendorService.DataList"
+                                  SearchSelector="@((VendorModels v) => v.Name)"
+                                  Value="_entryHeader.VendorId"
+                                  ValueChanged="@(val => _entryHeader.VendorId = val)"
+                                  IconClass="fas fa-truck-loading"
+                                  BgClass="!p-1"
+                                  ContainerClass="h-[42px]">
+                            <ItemTemplate Context="vendor">
+                                <div class="flex justify-between items-center w-full">
+                                    <span class="font-bold">@vendor.Name</span>
+                                    <span class="text-[9px] bg-slate-100 px-2 py-0.5 rounded">ID: @vendor.Id</span>
+                                </div>
+                            </ItemTemplate>
+                        </ComboBox>
+                    </div>
+
+                </div>
+
+                <div class="flex flex-wrap items-center mt-3 gap-3">
+                    <div class="relative flex-1 min-w-[300px]">
+                        <label class="absolute -top-2 left-2 bg-white px-1 text-[9px] font-black text-slate-500 uppercase">Internal Remarks</label>
+                        <textarea @bind="_entryHeader.Remarks"
+                                  class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs outline-none focus:border-orange-500 h-[42px] resize-none pt-3"
+                                  placeholder="Notes about this batch..."></textarea>
+                    </div>
+
+                    <div class="hidden md:flex items-center gap-3 w-full sm:w-auto">
+                        <Button Variant="ButtonVariant.Sidebar"
+                                Icon="fas fa-plus-circle"
+                                IconBg="!h-auto !w-auto"
+                                IsEnabled="!IsRefGenerated"
+                                OnClick="OpenProductSearch"
+                                Label="BROWSE PRODUCTS"
+                                class="flex-1 !justify-center !bg-orange-500 !text-white !rounded-full h-[45px]  shadow-md border-none  !font-black tracking-widest transition-transform active:scale-95" />
+                
+                        <Button Variant="ButtonVariant.Sidebar"
+                                Icon="fas fa-cloud-upload-alt"
+                                Label="UPDATE STOCK"
+                                IsEnabled="!IsSaveDisabled"
+                                IconBg="!h-auto !w-auto"
+                                OnClick="SaveStockIn"
+                                class="flex-1  !justify-center bg-slate-700 !rounded-full h-[45px] border-none  !font-black tracking-widest transition-all" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* GENERIC TABLE INTEGRATION *@
+        <div class="flex-1 overflow-hidden mt-2">
+            <GenericTable @ref="_tableRef"
+                          TItem="StockInModels"
+                          ShowSelection="false"
+                          TableTitle="Pending Stock Adjustments"
+                          Items="_stockList"
+                          IsLoading="_isTableLoading"
+                          CurrentPage="@_currentPage"
+                          OnPageChanged="HandlePageChanged"
+                          TotalCount="_stockList.Count()"
+                          PageSize="_pageSize">
+                <TableHeader>
+
+                    <th class="md:hidden px-4 py-3 text-left text-[10px] uppercase font-black tracking-widest text-slate-400">Adjustment Details</th>
+
+                    <th class="hidden md:table-cell px-6 py-4 text-left text-[10px] font-black uppercase tracking-wider text-white border-b">Product Information</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-right text-[10px] font-black uppercase tracking-wider text-white border-b">Costing</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-center text-[10px] font-black uppercase tracking-wider text-white border-b">Adjustment</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-right text-[10px] font-black uppercase tracking-wider text-white border-b">Sub-Total</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-center text-[10px] font-black uppercase tracking-wider text-white border-b">Actions</th>
+                </TableHeader>
+                <RowTemplate Context="row">
+                    @{
+                        var productDetail = productService.ProductDisplayList
+                            .FirstOrDefault(x => x.Product.Id == row.Item.ProductId)?.Product;
+                    }
+
+                    <td colspan="5" class="md:hidden p-4 border-b-4 border-slate-100 bg-white">
+                        <div class="flex flex-col gap-4">
+                            @* Product Identity Section *@
+                            <div class="flex items-center gap-3">
+                                <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+                                    <i class="fas fa-tag"></i>
+                                </div>
+                                <div class="flex flex-col flex-1">
+                                    <span class="font-black text-slate-800 uppercase text-sm">@(productDetail?.Name ?? "Unknown")</span>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">BC: @(productDetail?.Barcode ?? "N/A")</span>
+                                        <span class="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600">SOH: @(productDetail?.StockLevel ?? 0)</span>
+                                    </div>
+                                </div>
+                                <button @onclick="() => RemoveItem(row.Item)" class="bg-red-50 text-red-500 hover:text-red-500 p-2">
+                                    <i class="fas fa-trash-alt text-xs"></i>
+                                </button>
+                            </div>
+
+                            @* Controls and Costing Grid *@
+                            <div class="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                                <div class="flex flex-col">
+                                    <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Unit Cost</p>
+                                    <span class="font-mono font-bold text-slate-700 text-sm">₱ @row.Item.UnitCostAtTimeOfStock.ToString("N2")</span>
+                                </div>
+                                <div class="flex flex-col items-end">
+                                    <p class="text-[9px] font-black text-orange-400 uppercase mb-1">Total Value</p>
+                                    <span class="font-mono font-black text-orange-600 text-sm">₱ @row.Item.TotalCost.ToString("N2")</span>
+                                </div>
+                            </div>
+
+                            @* Quantity Adjustment Section *@
+                            <div class="flex items-center justify-between bg-white rounded-xl border-2 border-slate-200 p-1 shadow-sm">
+                                <button class="flex-1 h-10 rounded-lg bg-slate-50 text-lg font-bold" @onclick="() => UpdateQty(row.Item, -1)">-</button>
+                                <input type="number" @bind="row.Item.QuantityAdded" @bind:event="oninput"
+                                       class="w-20 text-center font-black font-mono text-slate-800 outline-none" />
+                                <button class="flex-1 h-10 rounded-lg bg-slate-50 text-emerald-600 text-lg font-bold" @onclick="() => UpdateQty(row.Item, 1)">+</button>
+                            </div>
+                        </div>
+                    </td>
+
+                    @* --- DESKTOP VIEW (Standard Table) --- *@
+                    <td class="hidden md:table-cell px-6 py-4">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400 group-hover:bg-orange-100 group-hover:text-orange-600 transition-colors">
+                                <i class="fas fa-tag text-sm"></i>
+                            </div>
+                            <div class="flex flex-col">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-black text-slate-800 uppercase tracking-tighter text-sm">@(productDetail?.Name ?? "Unknown Product")</span>
+                                    <span class="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100">
+                                        SOH: @(productDetail?.StockLevel ?? 0)
+                                    </span>
+                                </div>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-mono">BC: @(productDetail?.Barcode ?? "N/A")</span>
+                                    <span class="text-[9px] font-bold text-slate-400 uppercase">Unit: @(productDetail?.Unit ?? "PCS")</span>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+
+                    <td class="hidden md:table-cell px-6 py-4 text-right">
+                        <p class="text-[9px] font-black text-slate-400 uppercase leading-none mb-1">Unit Cost</p>
+                        <span class="font-mono font-bold text-slate-700">₱ @row.Item.UnitCostAtTimeOfStock.ToString("N2")</span>
+                    </td>
+
+                    <td class="hidden md:table-cell px-6 py-4">
+                        <div class="flex flex-col items-center gap-1">
+                            <div class="flex items-center justify-between bg-white rounded-xl border-2 border-slate-200 p-1 w-36 shadow-sm group-hover:border-orange-200 transition-all">
+                                <button class="w-8 h-8 rounded-lg bg-slate-50 hover:bg-red-50 hover:text-red-600 transition-colors text-lg font-bold" @onclick="() => UpdateQty(row.Item, -1)">-</button>
+                                <input type="number" @bind="row.Item.QuantityAdded" @bind:event="oninput" class="w-12 text-center bg-transparent font-black font-mono text-slate-800 outline-none" />
+                                <button class="w-8 h-8 rounded-lg bg-slate-50 hover:bg-emerald-50 hover:text-emerald-600 transition-colors text-lg font-bold" @onclick="() => UpdateQty(row.Item, 1)">+</button>
+                            </div>
+                            <span class="text-[8px] font-black text-slate-400 uppercase">Modify Quantity</span>
+                        </div>
+                    </td>
+
+                    <td class="hidden md:table-cell px-6 py-4 text-right">
+                        <div class="flex flex-col items-end">
+                            <p class="text-[9px] font-black text-orange-400 uppercase leading-none mb-1">Inventory Value</p>
+                            <span class="font-mono font-black text-orange-600 text-base">₱ @row.Item.TotalCost.ToString("N2")</span>
+                        </div>
+                    </td>
+
+                    <td class="hidden md:table-cell px-6 py-4 text-center">
+                        <button @onclick="() => RemoveItem(row.Item)" class="h-9 w-9 rounded-xl border border-slate-200 bg-red-50 text-red-500 hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-all active:scale-90">
+                            <i class="fas fa-trash-alt text-xs"></i>
+                        </button>
+                    </td>
+    
+                </RowTemplate>
+            </GenericTable> 
+        </div>
+        <div class="md:hidden flex items-center px-2 mt-3 mb-3 gap-3 w-full sm:w-auto">
+            <Button Variant="ButtonVariant.Sidebar"
+                    Icon="fas fa-plus-circle"
+                    IconBg="!h-auto !w-auto"
+                    IsEnabled="!IsRefGenerated"
+                    OnClick="OpenProductSearch"
+                    Label="PRODUCTS"
+                    class="flex-1 !justify-center !bg-orange-500 !text-white !rounded-full h-[45px]  shadow-md border-none  !font-black tracking-widest transition-transform active:scale-95" />
+                
+            <Button Variant="ButtonVariant.Sidebar"
+                    Icon="fas fa-cloud-upload-alt"
+                    Label="UPDATE"
+                    IsEnabled="!IsSaveDisabled"
+                    IconBg="@(!IsSaveDisabled ? "!h-auto !w-auto !text-slate-500" : "!h-auto !w-auto  !text-white shadow-lg")"
+                    OnClick="SaveStockIn"
+                    class="flex-1  !justify-center bg-slate-700 !rounded-full h-[45px] border-none  !font-black tracking-widest transition-all" />
+        </div>
+        
+    </div>
+</div>
+
+
+@if (_isSearchModalVisible)
+{
+    <Modal IsVisible="_isSearchModalVisible"
+           Title="Select Product"
+           ShowFooter="false"
+           customCss="!rounded-br-[15px] !rounded-bl-[15px]"
+           OnClose="() => _isSearchModalVisible = false">
+        <ChildContent>
+            <div class="mb-0 p-3 ">
+                <div class="flex flex-1  overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-orange-500 focus-within:ring-1 focus-within:ring-orange-500/20">
+                    <input type="text" @bind="ProductSearchTerm" @bind:event="oninput"
+                           class="w-full text-slate-800 px-4 py-2 text-sm font-medium outline-none"
+                           placeholder="Search description or barcode..." />
+                    <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                        <i class="fas fa-search text-xs"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="h-[50vh]">
+                <GenericTable TItem="ProductModels"
+                              Items="FilteredProducts"
+                              ShowSelection="false"
+                              customCss="rounded-br-[15px] rounded-bl-[15px]"
+                              TableTitle="Product List"
+                              TotalCount="FilteredProducts.Count()"
+                              PageSize="5">
+                    <TableHeader>
+                        <th class=" px-4 py-3 text-left text-xs uppercase tracking-wider">
+                            Products List
+                        </th>
+                    </TableHeader>
+                    <RowTemplate Context="row">
+                        
+
+                        <td colspan="7" class=" p-0 border-b-4 border-slate-200 bg-white hover:bg-slate-50 transition-colors">
+                            <div class="flex flex-col gap-3 p-4">
+                               
+                                @* Product Details *@
+                                <div class="flex justify-between items-start">
+                                    <div class="flex flex-col">
+                                        <span class="font-black text-slate-800 uppercase text-sm">@row.Item.Name</span>
+                                        <span class="text-[9px] text-slate-400 font-mono">BC: @row.Item.Barcode | PC: @row.Item.Pcode</span>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="text-[9px] text-slate-400 uppercase font-black">Total Stock</div>
+                                        <span class="font-mono text-xs @row.Item.StockStatusColor">@row.Item.StockLevel @row.Item.Unit</span>
+                                        @if (row.Item.IsLowStock)
+                                        {
+                                            <p class="text-[8px] text-red-500 font-bold animate-pulse">REORDER REQUIRED</p>
+                                        }
+                               
+                                    </div>
+                                </div>
+
+                                @* Action Bar *@
+                                <div class="flex justify-between items-center pt-3 border-t border-slate-100">
+                                    <span class="text-xs text-slate-500 font-mono">Price:  ₱ @row.Item.SellingPrice.ToString("N2")</span>
+                                    <button type="button"
+                                            @onclick="() => AddToStockList(row.Item)"
+                                            class="rounded-lg px-4 py-1.5 text-[10px] font-black text-white bg-orange-500 hover:bg-orange-600 active:scale-95">
+                                        SELECT
+                                    </button>
+                            
+                                </div>
+                            </div>
+                        </td>
+
+                    </RowTemplate>
+                </GenericTable>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+
+@code {
+    #region 1. Fields & Parameters
+    private bool _isTableLoading = false;
+    private bool _isSearchModalVisible = false;
+    private string _productSearchTerm = "";
+    private bool isExhausted => false;
+    private double remainingStock => 999999;
+    private bool IsRefGenerated => string.IsNullOrWhiteSpace(_entryHeader.ReferenceNumber);
+    
+    private bool IsSaveDisabled => !_stockList.Any() || string.IsNullOrWhiteSpace(_entryHeader.ReferenceNumber);
+    private GenericTable<StockInModels> _tableRef = default!;
+    private int _currentPage = 1;
+    private int _pageSize = 10;
+
+    // Data Containers
+    private StockInModels _entryHeader = new() { StockInDate = DateTime.Now };
+    private List<StockInModels> _stockList = new();
+    private List<ProductModels> _masterProducts = new();
+    #endregion
+
+    #region 2. Computed Properties
+    private string ProductSearchTerm
+    {
+        get => _productSearchTerm;
+        set
+        {
+            if (_productSearchTerm != value)
+            {
+                _productSearchTerm = value;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private IEnumerable<ProductModels> FilteredProducts =>
+      _masterProducts
+          .Where(p => p.IsActive)
+          .Where(p => string.IsNullOrWhiteSpace(ProductSearchTerm) ||
+                    p.Name.Contains(ProductSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                    (p.Barcode?.Contains(ProductSearchTerm) ?? false) ||
+                    (p.Pcode?.Contains(ProductSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    private DateTime _dateProxy
+    {
+        get => _entryHeader.StockInDate;
+        set => _entryHeader.StockInDate = value;
+    }
+    #endregion
+
+    #region 3. Lifecycle Methods
+    protected override async Task OnInitializedAsync()
+    {
+        await productService.LoadProductsAsync();
+    }
+    #endregion
+
+    #region 4. Search & Modal Logic
+    private async Task OpenProductSearch()
+    {
+        // Sync local list from service
+        _masterProducts = productService.ProductDisplayList
+            .Select(x => x.Product)
+            .Where(p => p.IsActive)
+            .ToList();
+
+        _productSearchTerm = "";
+        _isSearchModalVisible = true;
+        
+        StateHasChanged();
+        
+        await Task.Delay(100);
+       
+    }
+    #endregion
+
+    #region 5. Inventory Actions (Business Logic)
+    private void UpdateQty(StockInModels item, double change)
+    {
+        item.QuantityAdded += change;
+        if (item.QuantityAdded < 1) item.QuantityAdded = 1;
+        StateHasChanged(); // Force recalculation of Sum()
+    }
+
+    private void AddToStockList(ProductModels product)
+    {
+        var existing = _stockList.FirstOrDefault(x => x.ProductId == product.Id);
+        double qtyToAdd = product.TempQty > 0 ? product.TempQty : 1;
+
+        if (existing != null)
+        {
+            existing.QuantityAdded += qtyToAdd;
+        }
+        else
+        {
+            _stockList.Add(new StockInModels
+            {
+                ProductId = product.Id,
+                QuantityAdded = qtyToAdd,
+                UnitCostAtTimeOfStock = product.CostPrice,
+                StockInDate = _entryHeader.StockInDate,
+                ReferenceNumber = _entryHeader.ReferenceNumber,
+                VendorId = _entryHeader.VendorId
+            });
+        }
+
+        product.TempQty = 1;
+        _isSearchModalVisible = false;
+    }
+
+    private async Task SaveStockIn()
+    {
+        if (IsSaveDisabled) return;
+        _isTableLoading = true;
+        
+        try
+        {
+            // Pass the header data to the service for proper database logging
+            bool success = await _stockInServices.ProcessStockInBatchAsync(_stockList, _entryHeader);
+            
+            if (success)
+            {
+                await productService.LoadProductsAsync();
+                _stockList.Clear();
+                _entryHeader = new StockInModels { StockInDate = DateTime.Now };
+                GenerateReferenceNumber(); // Reset for next batch
+            }
+        }
+        finally
+        {
+            _isTableLoading = false;
+        }
+    }
+
+
+    #endregion
+
+    #region 6. Helper Methods
+    private void RemoveItem(StockInModels item) => _stockList.Remove(item);
+
+    private void GenerateReferenceNumber()
+    {
+        _entryHeader.ReferenceNumber = $"STK-{DateTime.Now:yyyyMMdd}-{Guid.NewGuid().ToString("N").Substring(0, 4).ToUpper()}";
+    }
+    private void HandlePageChanged(int newPage)
+    {
+        // Safety check to stay within bounds
+        var maxPage = (int)Math.Ceiling((double)FilteredProducts.Count() / _pageSize);
+        
+        if (newPage >= 1 && newPage <= maxPage)
+        {
+            _currentPage = newPage;
+            StateHasChanged(); // Force the UI to refresh with new PagedData
+        }
+    }
+    private void OnVendorSelected(VendorModels vendor) => _entryHeader.VendorId = vendor.Id;
+    #endregion
+
+}

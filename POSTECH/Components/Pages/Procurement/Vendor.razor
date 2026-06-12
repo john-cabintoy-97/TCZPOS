@@ -1,0 +1,423 @@
+﻿@page "/procurement/vendors"
+@inject VendorServices vendorServices
+@using TCZPOS.Components.Services
+@using TCZPOS.Components.Modules
+@inject IJSRuntime JS
+
+
+<div class="flex h-screen w-full flex-col overflow-hidden font-sans text-white">
+    <div class=" flex flex-col bg-[#1A252F] p-4 shadow-xl lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+        <div class="flex items-center gap-3 pb-3 lg:pb-0">
+            <h2 class="text-xl font-bold text-white uppercase tracking-tight">Vendor <span class="text-orange-500">Manager</span></h2>
+
+        </div>
+
+        <div class="mb-3 h-px w-full bg-slate-800 lg:hidden"></div>
+
+        <div class="flex items-center justify-between gap-3 lg:flex-none lg:justify-end">
+            <span class="rounded border border-orange-500/20 bg-orange-500/10 px-2 py-1 text-xs text-orange-500">
+                Total Classifications
+            </span>
+            <span class="text-3xl font-black text-orange-500">@vendorServices.DataList.Count</span>
+           
+           
+
+        </div>
+    </div>
+   
+    <div class="flex flex-1 flex-col overflow-hidden lg:flex-row">
+        <div class="flex flex-1 flex-col overflow-hidden bg-white text-slate-800">
+            <div class="flex flex-col border-b bg-slate-50/50">
+                <div class="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+                    <div class="flex flex-1 items-center gap-3">
+                        <div class="flex flex-1 max-w-md overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-orange-500 focus-within:ring-1 focus-within:ring-orange-500/20">
+                            <input type="text" @bind="SearchTerm" @bind:event="oninput"
+                                   class="w-full px-4 py-2 text-sm font-medium outline-none"
+                                   placeholder="Quick search categories..." />
+                            <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                                <i class="fas fa-search text-xs"></i>
+                            </div>
+                        </div>
+            
+                        <button @onclick="OpenAddModal"
+                                class="flex h-[40px] items-center gap-2 rounded-xl bg-slate-900 px-5 font-black text-[10px] uppercase tracking-widest text-white shadow-lg transition-all hover:bg-orange-600 active:scale-95">
+                            <i class="fas fa-plus"></i>
+                            <span class="hidden sm:inline">New Vendor</span>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0">
+                        <button @onclick='() => SetFilter("All")'
+                                class="whitespace-nowrap rounded-full px-4 py-1.5 text-[10px] font-bold uppercase transition-all @(_activeFilter == "All" ? "bg-orange-500 text-white" : "bg-white border border-slate-200 text-slate-500")">
+                            All
+                        </button>
+                        <button @onclick='() => SetFilter("Recent")'
+                                class="whitespace-nowrap rounded-full px-4 py-1.5 text-[10px] font-bold uppercase transition-all @(_activeFilter == "Recent" ? "bg-orange-500 text-white" : "bg-white border border-slate-200 text-slate-500")">
+                            Recently Added
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-1 border-t border-slate-200 bg-white px-4 py-1.5">
+                    <span class="mr-2 text-[9px] font-black uppercase tracking-tighter text-slate-400">Index:</span>
+                    <div class="flex flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar">
+                        <button @onclick='() => SetLetter("All")'
+                                class="px-2 py-1 text-[10px] font-bold @(_selectedLetter == "All" ? "text-orange-600 underline" : "text-slate-400 hover:text-slate-900")">
+                            All
+                        </button>
+                        @foreach (var letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                        {
+                            var l = letter.ToString();
+                            <button @onclick="() => SetLetter(l)"
+                                    class="min-w-[24px] px-1 py-1 text-[10px] font-bold transition-colors @(_selectedLetter == l ? "rounded bg-orange-100 text-orange-700" : "text-slate-400 hover:text-slate-900")">
+                                @l
+                            </button>
+                        }
+                    </div>
+        
+                    @if (_selectedLetter != "All" || _activeFilter != "All" || !string.IsNullOrEmpty(_searchTerm))
+                    {
+                        <button @onclick="ClearAllFilters" class="ml-2 text-[9px] font-black text-red-500 uppercase hover:text-red-700">
+                            Reset
+                        </button>
+                    }
+                </div>
+            </div>
+            <!-- TABLE -->
+            <div class="flex flex-1 flex-col overflow-hidden bg-white">
+                <GenericTable TItem="VendorModels"
+                              SearchTerm="@_searchTerm"
+                              @ref="_tableRef"
+                              TableTitle="Vendor Records"
+                              Items="PagedData"
+                              IsLoading="vendorServices.IsLoading"
+                              TotalCount="FilteredData.Count()"
+                              PageSize="_pageSize"
+                              RowClassFunc='(item) => _selectedDataId == item.Id ? "bg-orange-50/5 border-l-4 border-orange-500 shadow-inner" : "hover:bg-slate-200"'
+                              OnBatchDelete="HandleBatchDeleteTrigger"
+                              OnPageChanged="HandlePageChange">
+            
+                    <TableHeader>
+                        <th class="md:hidden px-4 py-3 text-left text-[10px] uppercase font-black tracking-widest text-slate-400">Brand Details</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400">Brand Name</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400">Created At</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-right tracking-widest text-slate-400">Commands</th>
+                    </TableHeader>
+
+                    <RowTemplate Context="data">
+                        <td colspan="7" class="md:hidden p-0 border-b-4 border-slate-200 bg-white hover:bg-slate-50 transition-colors">
+                            <div class="flex flex-col gap-3 p-4">
+                                <div class="flex justify-between items-start">
+                                    <div class="flex flex-col">
+                
+                                        <span class="font-black text-black-800 uppercase text-sm">  @data.Item.Name</span>
+                
+                                        <div class="flex items-center gap-1 mt-1 mb-1">
+                                            <div class="h-1.5 w-1.5 rounded-full @(_selectedDataId == data.Item.Id ? "bg-orange-500 shadow-[0_0_8px_#f97316]" : "bg-orange-500/40") transition-all"></div>
+
+                                            <span class="font-mono text-[9px] text-zinc bg-yellow-400 border border-yellow-300 px-1.5 py-0.5 rounded shadow-sm">
+                                                #@data.Index.ToString("D2")
+                                            </span>
+                                        </div>
+                
+                                        <span class="text-[9px] text-slate-400 font-mono">
+                                            @data.Item.CreatedAt.ToShortDateString()
+                                        </span>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="flex justify-end gap-3 ">
+                                            <button @onclick="() => OpenEditModal(data.Item)" @onclick:stopPropagation="true" class="text-blue-500 hover:text-blue-300">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button @onclick="() => OpenDeleteModal(data.Item)" @onclick:stopPropagation="true" class="text-red-500 hover:text-red-400">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                        @* Desktop Cells *@
+                        <td class="hidden md:table-cell px-4 py-3">
+                            <div class="flex items-center gap-3">
+                                <div class="h-1.5 w-1.5 rounded-full @(_selectedDataId == data.Item.Id ? "bg-orange-500 shadow-[0_0_8px_#f97316]" : "bg-orange-500/40") transition-all"></div>
+                
+                                <span class="font-mono text-[9px] bg-yellow-400 border border-yellow-300 px-1.5 py-0.5 rounded">
+                                    #@data.Index.ToString("D2")
+                                </span>
+
+                                <span class="truncate font-bold text-zinc-800 uppercase tracking-tight">
+                                    @data.Item.Name
+                                </span>
+                            </div>
+                        </td>
+                        <td class="hidden md:table-cell px-4 py-3 text-slate-500 text-xs">
+                            @data.Item.CreatedAt.ToShortDateString()
+                        </td>
+                        <td class="hidden md:table-cell px-4 py-3 text-right">
+                            <div class="flex justify-end gap-3 ">
+                                <button @onclick="() => OpenEditModal(data.Item)" @onclick:stopPropagation="true" class="text-blue-500 hover:text-blue-300">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button @onclick="() => OpenDeleteModal(data.Item)" @onclick:stopPropagation="true" class="text-red-500 hover:text-red-400">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </RowTemplate>
+                </GenericTable>
+           
+            </div>
+            <!-- TABLE END -->
+            
+        </div>
+    </div>
+</div>
+
+
+@if (_showDeleteModal)
+{
+    <Modal IsVisible="_showDeleteModal" Title="Confirm Deletion" OnClose="() => _showDeleteModal = false" OnConfirm="HandleDelete">
+        <ChildContent>
+            <div class="p-5 text-center bg-[#1E2939]">
+                <div class="mb-4 flex justify-center">
+                    <div class="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10 text-red-500 shadow-inner">
+                        <i class="fas fa-exclamation-triangle text-2xl"></i>
+                    </div>
+                </div>
+                <h3 class="text-lg font-bold text-white uppercase">System Warning</h3>
+                <p class="mt-2 text-sm text-red-400">
+                    You are about to permanently remove the vendor:
+                    <span class="block mt-1 font-mono font-bold text-orange-500">@_activeData.Name</span>
+           
+                </p>
+                <p class="mt-4 text-[10px] text-gray-600 uppercase tracking-widest">This action cannot be undone.</p>
+            </div>
+        </ChildContent>
+    </Modal>
+   
+}
+@if (_showModal)
+{
+    <Modal IsVisible="_showModal"
+           Title="@(_isEditMode ? "Update Record" : "New Entry")"
+           ShowFooter="true"
+           OnClose="CloseModal"
+           OnConfirm="HandleSave">
+        <ChildContent>
+            <div class="space-y-4 p-3 bg-[#1E2939]">
+                <div class="rounded-xl border border-gray-700 p-4">
+                    <label class="block text-[10px] font-black text-gray-500 uppercase mb-2 tracking-widest">Input Name</label>
+                    <input @bind="_activeData.Name" @bind:event="oninput"
+                               class="w-full bg-transparent border-none text-white text-lg font-bold outline-none placeholder:text-gray-600"
+                               placeholder="e.g., COMPANY..." autofocus />
+                </div>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+@if (_showBatchModal)
+{
+    <Modal IsVisible="_showBatchModal"
+           Title="Batch Disposal Authorization"
+           OnClose="() => _showBatchModal = false"
+           OnConfirm="ConfirmBatchDelete">
+        <ChildContent>
+            <div class="p-6 text-center bg-[#1E2939]">
+                <div class="mb-4 flex justify-center">
+                    <div class="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10 text-red-500 shadow-inner">
+                        <i class="fas fa-layer-group text-2xl"></i>
+                    </div>
+                </div>
+                <h3 class="text-lg font-bold text-white uppercase tracking-tighter">Bulk Action Warning</h3>
+                <p class="mt-2 text-sm text-gray-400">
+                    You are about to erase <span class="text-red-500 font-black">@_itemsToDelete.Count</span> classification records.
+                </p>
+
+                <div class="mt-4 max-h-32 overflow-y-auto rounded-xl bg-gray-900/50 border border-gray-700 p-3 text-left custom-scrollbar">
+                   
+                    @foreach (var item in _itemsToDelete)
+                        {
+                            <div class="flex items-center gap-2 py-1 border-b border-gray-800 last:border-0">
+                                <div class="h-1 w-1 rounded-full bg-red-500"></div>
+                                <span class="text-[10px] font-mono text-gray-400 uppercase">@item.Name</span>
+                            </div>
+                        }
+                    
+                </div>
+
+                <p class="mt-4 text-[10px] text-gray-600 uppercase tracking-widest italic font-bold">
+                    Proceeding will permanently wipe these entries.
+                </p>
+            </div>
+        </ChildContent>
+    </Modal>
+    
+}
+
+
+
+                      
+@code {
+    private bool _showBatchModal = false;
+    private GenericTable<VendorModels> _tableRef = default!;
+    private List<VendorModels> _itemsToDelete = new();
+
+    private int _currentPage = 1;
+    private int _pageSize = 10;
+    private int _selectedDataId = -1;
+    
+    private bool _showModal = false;
+    private bool _showDeleteModal = false;
+    private bool _isEditMode = false;
+    private string? _modalError;
+    private string _selectedLetter = "All";
+    private string _activeFilter = "All";
+
+
+    private VendorModels _activeData = new();
+
+    // --- Search Logic with Auto-Reset ---
+    private void SetLetter(string letter)
+    {
+        _selectedLetter = letter;
+        _currentPage = 1;
+    }
+
+    private void SetFilter(string filter)
+    {
+        _activeFilter = filter;
+        _currentPage = 1;
+    }
+    private void ClearAllFilters()
+    {
+        _searchTerm = "";
+        _selectedLetter = "All";
+        _activeFilter = "All";
+        _currentPage = 1;
+        StateHasChanged();
+    }
+
+
+    private string _searchTerm = "";
+    private string SearchTerm
+    {
+        get => _searchTerm;
+        set
+        {
+            if (_searchTerm != value)
+            {
+                _searchTerm = value;
+                _currentPage = 1;
+            }
+        }
+    }
+
+    private IEnumerable<VendorModels> FilteredData =>
+        vendorServices.DataList
+         .Where(x => string.IsNullOrWhiteSpace(_searchTerm) ||
+                     x.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))
+         .Where(x => _selectedLetter == "All" ||
+                     x.Name.StartsWith(_selectedLetter, StringComparison.OrdinalIgnoreCase))
+         .Where(x => _activeFilter switch
+         {
+             "Recent" => x.CreatedAt >= DateTime.Now.AddDays(-7),
+             _ => true
+         });
+
+    private IEnumerable<VendorModels> PagedData =>
+        FilteredData
+        .Skip((_currentPage - 1) * _pageSize)
+        .Take(_pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await vendorServices.LoadAsync();
+        StateHasChanged();
+    }
+
+    private void HandleBatchDeleteTrigger(List<VendorModels> selected)
+    {
+        _itemsToDelete = selected;
+        _showBatchModal = true;
+    }
+
+    private async Task ConfirmBatchDelete()
+    {
+        _modalError = null;
+        var result = await vendorServices.DeleteMultipleAsync(_itemsToDelete);
+    
+        if (result.Success)
+        {
+            await JS.InvokeVoidAsync("navigator.vibrate", 50);
+            _tableRef.ClearSelection();
+            _showBatchModal = false;
+            await vendorServices.LoadAsync();
+            StateHasChanged();
+        }
+        else
+        {
+            _modalError = result.Message;
+        }
+    }
+
+    private void HandlePageChange(int newPage)
+    {
+        _currentPage = newPage;
+        _selectedDataId = -1;
+        StateHasChanged();
+    }
+
+    // --- Modal Handlers ---
+    private void OpenAddModal()
+    {
+        _activeData = new();
+        _isEditMode = false;
+        _modalError = null;
+        _showModal = true;
+    }
+
+    private void OpenEditModal(VendorModels data)
+    {
+        // Clone the object so changes don't reflect in the table until Saved
+        _activeData = new VendorModels
+        {
+            Id = data.Id,
+            Name = data.Name,
+            CreatedAt = data.CreatedAt
+        };
+        _isEditMode = true;
+        _modalError = null;
+        _showModal = true;
+    }
+
+    private void OpenDeleteModal(VendorModels data)
+    {
+        _activeData = data;
+        _showDeleteModal = true;
+    }
+
+    private void CloseModal() => _showModal = false;
+
+    private async Task HandleSave()
+    {
+        var result = await vendorServices.SaveAsync(_activeData);
+        if (result.Success)
+        {
+            _showModal = false;
+            StateHasChanged();
+        }
+        else
+        {
+            _modalError = result.Message;
+        }
+    }
+
+    private async Task HandleDelete()
+    {
+        await vendorServices.DeleteAsync(_activeData);
+        _showDeleteModal = false;
+        _selectedDataId = -1;
+        StateHasChanged();
+    }
+}

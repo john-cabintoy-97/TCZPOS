@@ -1,0 +1,29 @@
+﻿@page "/auth/logout"
+@using Microsoft.AspNetCore.Authorization
+@using TCZPOS.Components.Guard.Interface
+@inject NavigationManager NavManager
+@inject TCZPOS.Components.Providers.AuthStateProvider AuthProvider
+@inject IGatekeeperService Gatekeeper
+@inject IJSRuntime JS
+@attribute [AllowAnonymous]
+
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        // 1. Clear all local storage keys
+        SecureStorage.Default.Remove("IsLoggedIn");
+        SecureStorage.Default.Remove("LoggedUser");
+        SecureStorage.Default.Remove("UserRole");
+
+        // 2. Clear the Gatekeeper state
+        // If your service has a 'Logout' that clears Master + Staff, use that.
+        // Otherwise, clear both explicitly.
+        Gatekeeper.LogoutStaff();
+        
+        // 3. Notify the Auth system the user is GONE
+        AuthProvider.NotifyUserLogout();
+
+        NavManager.NavigateTo("/auth/login", forceLoad: true);
+    }
+}

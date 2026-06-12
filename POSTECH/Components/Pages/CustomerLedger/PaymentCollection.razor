@@ -1,0 +1,298 @@
+﻿@page "/customers/payments"
+@using TCZPOS.Components.Services
+@using TCZPOS.Components.Models
+@using TCZPOS.Components.DTOs
+@inject CustomerCreditService CreditService
+@inject AlertServices alertService
+
+<div class="flex h-screen w-full flex-col overflow-hidden font-sans text-white">
+    @* HEADER SECTION *@
+    <div class="flex flex-col bg-[#1A252F] p-4 shadow-xl lg:flex-row lg:items-center lg:justify-between">
+        <div>
+            <h2 class="text-xl font-bold uppercase tracking-tight">
+                Payment <span class="text-orange-500">Collection</span>
+            </h2>
+            <p class="text-[10px] font-medium text-slate-400">Manage receivables and record customer payments</p>
+        </div>
+        
+        <div class="flex items-center gap-4 mt-3 lg:mt-0">
+            @* FEATURE 1: SYNC UTILITY *@
+            <button @onclick="SyncAllBalances" disabled="@_isSyncing"
+                    class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2 shadow-lg disabled:opacity-50">
+                <i class="fas fa-sync-alt @(_isSyncing ? "fa-spin" : "")"></i>
+                @(_isSyncing ? "Syncing..." : "Sync Totals")
+            </button>
+
+            <div class="flex items-center gap-2 border-l border-slate-700 pl-4">
+                <span class="rounded border border-orange-500/20 bg-orange-500/10 px-2 py-1 text-xs text-orange-500 uppercase font-black">
+                    Active Accounts
+                </span>
+                <span class="text-3xl font-black text-orange-500">@CreditSummaries.Count(x => x.CurrentBalance != 0)</span>
+            </div>
+        </div>
+    </div>
+
+    @* MAIN CONTENT *@
+    <div class="flex-1 flex flex-col overflow-hidden bg-white text-slate-800">
+        @* SEARCH BAR *@
+        <div class="p-4 border-b bg-slate-50">
+            <div class="flex max-w-md overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-orange-500">
+                <input type="text" @bind="SearchTerm" @bind:event="oninput"
+                       class="w-full px-4 py-2 text-sm font-medium outline-none"
+                       placeholder="Search customer name or contact..." />
+                <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                    <i class="fas fa-search text-xs"></i>
+                </div>
+            </div>
+        </div>
+
+        @* TABLE IMPLEMENTATION *@
+        <div class="flex-1 overflow-hidden">
+            <GenericTable TItem="CustomerCreditViewDTO"
+                          Items="FilteredSummaries.ToList()"
+                          IsLoading="IsLoading"
+                          TotalCount="FilteredSummaries.Count()"
+                          PageSize="12"
+                          ShowSelection="false"
+                          TableTitle="Accounts Receivable"
+                          OnRowClick="SelectCustomer">
+                <TableHeader>
+                    @* Mobile Header: Only shows one column for the card *@
+                    <th class="md:hidden px-4 py-3 text-left text-[10px] uppercase font-black text-slate-400">Customer Details</th>
+        
+                    @* Desktop Headers: Hidden on small screens *@
+                    <th class="hidden md:table-cell px-6 py-4 text-left text-[10px] uppercase font-black text-slate-400">Customer Information</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-right text-[10px] uppercase font-black text-slate-400">Credit Limit</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-right text-[10px] uppercase font-black text-slate-400">Balance Due</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-center text-[10px] uppercase font-black text-slate-400">Action</th>
+                </TableHeader>
+                <RowTemplate Context="row">
+                    @* --- MOBILE VIEW (Card Layout) --- *@
+                    <td colspan="4" class="md:hidden p-2 border-b-4 border-slate-50">
+                        <div class="flex flex-col gap-3 p-4 rounded-2xl border border-slate-200 bg-white shadow-sm active:scale-[0.98] transition-all">
+                            <div class="flex justify-between items-start">
+                                <div class="flex flex-col">
+                                    <span class="font-black text-slate-800 text-sm uppercase">@row.Item.Name</span>
+                                    <span class="text-[10px] text-slate-400 font-mono">@row.Item.ContactNumber</span>
+                                </div>
+                                <button class="h-9 w-9 rounded-full bg-orange-50 text-orange-500 border border-orange-100">
+                                    <i class="fas fa-hand-holding-usd text-xs"></i>
+                                </button>
+                            </div>
+                
+                            <div class="flex justify-between items-end border-t border-slate-50 pt-3">
+                                <div class="flex flex-col">
+                                    <span class="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Credit Limit</span>
+                                    <span class="text-[10px] font-bold text-slate-500">₱@row.Item.CreditLimit.ToString("N2")</span>
+                                </div>
+                                <div class="flex flex-col items-end">
+                                    <span class="text-[8px] font-black uppercase text-slate-400">
+                                        @(row.Item.CurrentBalance < 0 ? "Advance Credits" : "Net Outstanding")
+                                    </span>
+                                    <span class="text-sm font-black @(row.Item.CurrentBalance < 0 ? "text-emerald-600" : "text-red-600")">
+                                        ₱@Math.Abs(row.Item.CurrentBalance).ToString("N2")
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+
+                    @* --- DESKTOP VIEW (Table Cells) --- *@
+                    <td class="hidden md:table-cell px-6 py-4">
+                        <div class="flex flex-col">
+                            <span class="font-black text-slate-800 text-sm uppercase">@row.Item.Name</span>
+                            <span class="text-[10px] text-slate-400 font-mono">@row.Item.ContactNumber</span>
+                        </div>
+                    </td>
+                    <td class="hidden md:table-cell px-6 py-4 text-right text-xs font-bold text-slate-500 font-mono">
+                        ₱ @row.Item.CreditLimit.ToString("N2")
+                    </td>
+                    <td class="hidden md:table-cell px-6 py-4 text-right">
+                        @if (row.Item.CurrentBalance < 0)
+                        {
+                            <div class="flex flex-col items-end">
+                                <span class="text-sm font-black text-emerald-600 font-mono">₱ @Math.Abs(row.Item.CurrentBalance).ToString("N2")</span>
+                                <span class="text-[8px] font-black text-emerald-500 uppercase">Wallet/Advance</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <span class="text-sm font-black text-red-600 font-mono">₱ @row.Item.CurrentBalance.ToString("N2")</span>
+                        }
+                    </td>
+                    <td class="hidden md:table-cell px-6 py-4 text-center">
+                        <button class="h-8 w-8 rounded-lg border border-slate-200 bg-white text-orange-500 hover:bg-orange-50 transition-all shadow-sm">
+                            <i class="fas fa-hand-holding-usd text-xs"></i>
+                        </button>
+                    </td>
+                </RowTemplate>
+            </GenericTable>
+        </div>
+    </div>
+</div>
+
+@* PAYMENT MODAL *@
+@if (_showPaymentModal && _selectedCustomer != null)
+{
+    <Modal IsVisible="_showPaymentModal"
+           Title="Record Payment"
+           OnClose="ClosePaymentModal"
+           ShowFooter="false"
+           customCss="!rounded-br-[15px] !rounded-bl-[15px]">
+        <ChildContent>
+            <div class="p-6">
+                @* Summary Card *@
+                <div class="mb-6 rounded-xl bg-[#1A252F] p-5 text-white shadow-lg">
+                    <label class="text-[9px] font-black uppercase text-orange-500 tracking-widest">Customer Profile</label>
+                    <div class="text-lg font-black uppercase">@_selectedCustomer.Name</div>
+                    
+                    <div class="mt-4 space-y-2 border-t border-slate-700 pt-4">
+                        <div class="flex justify-between items-center">
+                            <span class="text-[10px] uppercase text-slate-400 font-bold">Outstanding Debt</span>
+                            <span class="font-mono font-black text-red-400 text-lg">₱ @(Math.Max(0, _selectedCustomer.CurrentBalance).ToString("N2"))</span>
+                        </div>
+                    </div>
+                </div>
+
+                @* Input Section *@
+                <div class="space-y-4">
+                    <div class="relative">
+                        <label class="text-[10px] font-black uppercase text-slate-400">Payment Amount (₱)</label>
+                        <input type="number" @bind="_paymentAmount"
+                               class="w-full rounded-lg border border-slate-200 bg-slate-50 p-4 text-2xl font-black text-slate-800 outline-none focus:border-orange-500 shadow-inner"
+                               placeholder="0.00" />
+                        <div class="absolute right-4 bottom-4 text-slate-300 pointer-events-none">
+                            <i class="fas fa-coins text-xl"></i>
+                        </div>
+                    </div>
+                    
+                    <div class="rounded-lg bg-blue-50 p-3 flex gap-3 items-start border border-blue-100">
+                        <i class="fas fa-info-circle text-blue-500 mt-0.5"></i>
+                        <p class="text-[10px] text-blue-700 font-bold uppercase leading-tight">
+                            Smart Allocation: Payments are automatically applied to the oldest unpaid invoices first (FIFO).
+                        </p>
+                    </div>
+                </div>
+
+                @* Footer Actions *@
+                <div class="mt-8 flex gap-3">
+                    <button @onclick="ClosePaymentModal"
+                            class="flex-1 rounded-xl bg-slate-100 py-4 text-xs font-black uppercase text-slate-400 hover:bg-slate-200 transition-all">
+                        Cancel
+                    </button>
+                    <button @onclick="ProcessPayment" disabled="@(_paymentAmount <= 0 || _isProcessing)"
+                            class="flex-1 rounded-xl bg-orange-500 py-4 text-xs font-black uppercase text-white shadow-lg shadow-orange-500/30 hover:bg-orange-600 disabled:opacity-50 active:scale-95 transition-all">
+                        @(_isProcessing ? "Processing..." : "Confirm Payment")
+                    </button>
+                </div>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+
+@code {
+    private List<CustomerCreditViewDTO> CreditSummaries = new();
+    private string _searchTerm = "";
+    private bool IsLoading = true;
+    private bool _isProcessing = false;
+    private bool _isSyncing = false;
+    
+    private bool _showPaymentModal = false;
+    private CustomerCreditViewDTO? _selectedCustomer;
+    private decimal _paymentAmount;
+
+    private string SearchTerm
+    {
+        get => _searchTerm;
+        set { _searchTerm = value; StateHasChanged(); }
+    }
+
+    // FEATURE 3: CHANGED TO != 0 TO SHOW WALLET BALANCES
+    private IEnumerable<CustomerCreditViewDTO> FilteredSummaries => CreditSummaries
+        .Where(x => x.CurrentBalance != 0)
+        .Where(x => string.IsNullOrWhiteSpace(SearchTerm) ||
+                    x.Name.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                    (x.ContactNumber?.Contains(SearchTerm) ?? false));
+
+    protected override async Task OnInitializedAsync() => await RefreshData();
+
+    private async Task RefreshData()
+    {
+        IsLoading = true;
+        CreditSummaries = await CreditService.GetDetailedCreditListAsync();
+        IsLoading = false;
+    }
+
+    // FEATURE 1 LOGIC: SYNC BALANCES
+    private async Task SyncAllBalances()
+    {
+        _isSyncing = true;
+        try
+        {
+            var customerIds = CreditSummaries.Select(x => x.CustomerId).Distinct();
+            foreach (var id in customerIds)
+            {
+                await CreditService.SyncCustomerDebtAsync(id);
+            }
+            await RefreshData();
+            alertService.Notify("All customer balances have been synchronized.");
+        }
+        catch (Exception ex)
+        {
+            alertService.Error($"Sync Failed: {ex.Message}");
+        }
+        finally { _isSyncing = false; }
+    }
+
+    private void SelectCustomer(CustomerCreditViewDTO customer)
+    {
+        _selectedCustomer = customer;
+        // Default payment to the balance due (or 0 if overpaid)
+        _paymentAmount = Math.Max(0, customer.CurrentBalance);
+        _showPaymentModal = true;
+    }
+
+    private void ClosePaymentModal()
+    {
+        _showPaymentModal = false;
+        _selectedCustomer = null;
+        _paymentAmount = 0;
+    }
+
+    private async Task ProcessPayment()
+    {
+        if (_selectedCustomer == null || _paymentAmount <= 0) return;
+        
+        _isProcessing = true;
+        try
+        {
+            var creditHistory = await CreditService.GetCreditHistoryAsync();
+            var unpaidSales = creditHistory
+                .Where(s => s.CustomerId == _selectedCustomer.CustomerId && s.CreditBalance > 0)
+                .OrderBy(s => s.TransactionDate)
+                .ToList();
+
+            decimal remainingPayment = _paymentAmount;
+
+            foreach (var sale in unpaidSales)
+            {
+                if (remainingPayment <= 0) break;
+                decimal amountToApply = Math.Min(remainingPayment, sale.CreditBalance);
+                await CreditService.RecordPaymentAsync(sale.Id, amountToApply, "Admin");
+                remainingPayment -= amountToApply;
+            }
+            
+            // Re-sync after payment to ensure the master summary table is perfect
+            await CreditService.SyncCustomerDebtAsync(_selectedCustomer.CustomerId);
+
+            alertService.Notify($"Transaction Success: ₱{_paymentAmount:N2} collected.");
+            ClosePaymentModal();
+            await RefreshData();
+        }
+        catch (Exception ex)
+        {
+            alertService.Error($"Collection Error: {ex.Message}");
+        }
+        finally { _isProcessing = false; }
+    }
+}

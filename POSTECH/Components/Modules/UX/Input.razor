@@ -1,0 +1,57 @@
+﻿<div class="space-y-1 @ContainerClass">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <label class="block text-[10px] font-black text-gray-500 uppercase px-2 tracking-widest">
+            @Label
+        </label>
+    }
+
+    <div class="flex items-center gap-2 rounded-xl border @BorderClass @BgClass p-2 focus-within:border-orange-500/50 transition-all shadow-inner">
+        @if (!string.IsNullOrEmpty(IconClass))
+        {
+            <i class="@IconClass text-gray-400 ml-2 text-xs"></i>
+        }
+
+        <input value="@Value"
+               @oninput="HandleInput"
+               type="@Type"
+               placeholder="@Placeholder"
+               readonly="@IsReadOnly"
+               step="@Step" 
+               @attributes="AdditionalAttributes" 
+               class="w-full bg-transparent px-2 py-1 outline-none text-sm @(IsReadOnly ? "text-gray-400 font-mono" : "text-slate-800") @InputClass" />
+        @ChildContent
+    </div>
+    
+    @if (!string.IsNullOrEmpty(HelperText))
+    {
+        <span class="text-[9px] text-gray-400 px-2 italic uppercase">@HelperText</span>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string Type { get; set; } = "text";
+    [Parameter] public string Step { get; set; } = "any"; // Default to "any" for numbers
+    [Parameter] public string? IconClass { get; set; }
+    [Parameter] public string? ContainerClass { get; set; }
+    [Parameter] public string? InputClass { get; set; }
+    [Parameter] public string? HelperText { get; set; }
+    [Parameter] public bool IsReadOnly { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string BgClass { get; set; } = "bg-white";
+    [Parameter] public string BorderClass { get; set; } = "border-gray-700";
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    // This allows you to pass ANY extra HTML attributes from the parent
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private async Task HandleInput(ChangeEventArgs e)
+    {
+        Value = e.Value?.ToString();
+        await ValueChanged.InvokeAsync(Value);
+    }
+}

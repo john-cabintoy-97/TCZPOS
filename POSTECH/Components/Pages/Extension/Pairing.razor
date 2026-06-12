@@ -1,0 +1,56 @@
+﻿@using TCZPOS.Components.Modules
+@inject TCZPOS.Components.Services.Hardware.HardwareServices HardwareServices
+
+<div class="text-center">
+    @* QR Code Container *@
+    <div class="group relative mx-auto max-w-[280px]">
+        @* Decorative background glow *@
+        <div class="absolute -inset-1 rounded-xl bg-yellow-500/20 opacity-75 blur transition duration-500 group-hover:opacity-100"></div>
+        
+        <div class="relative flex items-center justify-center rounded-xl bg-white p-2 shadow-inner">
+            @if (!string.IsNullOrEmpty(_connectionString))
+            {
+                <QRCode Data="@_connectionString" ImageClass="h-auto w-full" />
+            }
+        </div>
+    </div>
+
+    @* Action Buttons *@
+    <div class="space-y-3">
+        <div class="flex items-center justify-center gap-2 rounded-xl border border-yellow-500/30 bg-yellow-500/5 px-4 py-3 text-xs font-bold text-yellow-500/80">
+            <i class="fas fa-info-circle"></i>
+            OPEN THE MOBILE APP TO SCAN
+        </div>
+        
+        <button @onclick="RefreshConnection"
+                class="group flex w-full items-center justify-center gap-2 px-6 py-2 text-gray-400 transition-all hover:text-white">
+            <i class="fas fa-sync-alt transition-transform duration-500 group-active:rotate-180"></i>
+            <span class="text-sm font-medium">Generate New QR</span>
+        </button>
+    </div>
+
+    @* Timestamp *@
+    @if (_lastUpdated.HasValue)
+    {
+        <div class="mt-6 border-t border-gray-700/50 pt-4">
+            <p class="font-medium tracking-widest text-[10px] text-gray-500 uppercase">
+                Token Refreshed: <span class="text-gray-400">@_lastUpdated.Value.ToString("HH:mm:ss")</span>
+            </p>
+        </div>
+    }
+</div>
+
+@code {
+    private string? _connectionString;
+    private DateTime? _lastUpdated;
+
+    protected override void OnInitialized() => GenerateNewLink();
+
+    private void RefreshConnection() => GenerateNewLink();
+
+    private void GenerateNewLink()
+    {
+        _connectionString = HardwareServices.GetFormattedConnectionString();
+        _lastUpdated = DateTime.Now;
+    }
+}

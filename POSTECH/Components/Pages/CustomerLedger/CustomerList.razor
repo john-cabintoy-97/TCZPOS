@@ -1,0 +1,350 @@
+﻿@page "/customers/list"
+@using TCZPOS.Components.Services
+@using TCZPOS.Components.Models
+@inject CustomerService CustomerService
+@inject CustomerCreditService CreditService
+@inject AlertServices alertService
+
+<div class="flex h-screen w-full flex-col overflow-hidden font-sans text-white">
+    @* HEADER SECTION *@
+    <div class="flex flex-col bg-[#1A252F] p-4 shadow-xl lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+        <div class="flex items-center gap-3 pb-3 lg:pb-0">
+            <h2 class="text-xl font-bold text-white uppercase tracking-tight">
+                Customer <span class="text-orange-500"> Management</span>
+            </h2>
+        </div>
+        <div class="mb-3 h-px w-full bg-slate-800 lg:hidden"></div>
+        
+        <div class="flex items-center justify-between gap-3 lg:flex-none lg:justify-end">
+            <span class="rounded border border-orange-500/20 bg-orange-500/10 px-2 py-1 text-xs text-orange-500">
+                Total Classifications
+            </span>
+            <span class="text-3xl font-black text-orange-500">@CustomerService.CustomerList.Count</span>
+           
+        </div>
+    </div>
+
+    @* FILTER & TABLE SECTION *@
+    <div class="flex flex-1 flex-col overflow-hidden bg-white text-slate-800">
+        <div class="flex flex-col border-b bg-slate-50/50">
+            <div class="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+                <div class="flex flex-1 items-center gap-3">
+                    <div class="flex flex-1 max-w-md overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-orange-500">
+                        <input type="text" @bind="SearchTerm" @bind:event="oninput"
+                               class="w-full px-4 py-2 text-sm font-medium outline-none"
+                               placeholder="Quick search customers..." />
+                        <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                            <i class="fas fa-search text-xs"></i>
+                        </div>
+                    </div>
+                    <button @onclick="OpenAddModal"
+                            class="flex h-[40px] items-center gap-2 rounded-xl bg-slate-900 px-5 font-black text-[10px] uppercase tracking-widest text-white shadow-lg transition-all hover:bg-orange-600 active:scale-95">
+                        <i class="fas fa-plus "></i>
+                        <span class="hidden sm:inline">Add Customer</span>
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0">
+                    <button @onclick='() => SetFilter("All")'
+                            class="whitespace-nowrap rounded-full px-4 py-1.5 text-[10px] font-bold uppercase transition-all @(_activeFilter == "All" ? "bg-orange-500 text-white" : "bg-white border border-slate-200 text-slate-500")">
+                        All
+                    </button>
+                    <button @onclick='() => SetFilter("Recent")'
+                            class="whitespace-nowrap rounded-full px-4 py-1.5 text-[10px] font-bold uppercase transition-all @(_activeFilter == "Recent" ? "bg-orange-500 text-white" : "bg-white border border-slate-200 text-slate-500")">
+                        Recently Added
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-1 border-t border-slate-200 bg-white px-4 py-1.5 shadow-inner">
+                <span class="mr-2 text-[9px] font-black uppercase tracking-tighter text-slate-400">Index:</span>
+                <div class="flex flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar">
+                    <button @onclick='() => SetLetter("All")'
+                            class="px-2 py-1 text-[10px] font-bold @(_selectedLetter == "All" ? "text-orange-600 underline" : "text-slate-400 hover:text-slate-900")">
+                        All
+                    </button>
+                    @foreach (var letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                    {
+                        var l = letter.ToString();
+                        <button @onclick="() => SetLetter(l)"
+                                class="min-w-[24px] px-1 py-1 text-[10px] font-bold transition-colors @(_selectedLetter == l ? "rounded bg-orange-100 text-orange-700" : "text-slate-400 hover:text-slate-900")">
+                            @l
+                        </button>
+                    }
+                </div>
+        
+                @if (_selectedLetter != "All" || _activeFilter != "All" || !string.IsNullOrEmpty(_searchTerm))
+                {
+                    <button @onclick="ClearAllFilters" class="ml-2 text-[9px] font-black text-red-500 uppercase hover:text-red-700">
+                        Reset
+                    </button>
+                }
+            </div>
+        </div>
+       
+        @* TABLE SECTION *@
+        <div class="flex-1 overflow-hidden">
+            <GenericTable @ref="_tableRef"
+                          TItem="CustomerModels"
+                          Items="FilteredCustomers.ToList()"
+                          IsLoading="IsLoading"
+                          TotalCount="FilteredCustomers.Count()"
+                          PageSize="10"
+                          ShowSelection="false">
+                <TableHeader>
+                    <th class="md:hidden px-6 py-4 text-left text-[10px] font-black uppercase tracking-wider text-white border-b bg-[#1A252F]">Customer Details</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-left text-[10px] font-black uppercase tracking-wider text-white border-b bg-[#1A252F]">Customer Information</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-right text-[10px] font-black uppercase tracking-wider text-white border-b bg-[#1A252F]">Contact Number</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-right text-[10px] font-black uppercase tracking-wider text-white border-b bg-[#1A252F]">Credit Limit</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-center text-[10px] font-black uppercase tracking-wider text-white border-b bg-[#1A252F]">Outstanding Debt</th>
+                    <th class="hidden md:table-cell px-6 py-4 text-center text-[10px] font-black uppercase tracking-wider text-white border-b bg-[#1A252F]">Action</th>
+                </TableHeader>
+                <RowTemplate Context="row">
+                    @{
+                        var debt = GetCachedDebt(row.Item.Id);
+                    }
+    
+                    @* MOBILE VIEW *@
+                    <td colspan="5" class="md:hidden p-0 border-b-4 border-slate-100 bg-white">
+                        <div class="flex flex-col gap-3 p-4">
+                            <div class="flex justify-between items-start">
+                                <div class="flex flex-col">
+                                    <span class="font-black text-slate-800 uppercase text-sm leading-tight">@row.Item.Name</span>
+                                    <span class="text-[9px] font-bold text-slate-400 font-mono mt-1">@row.Item.ContactNumber</span>
+                                </div>
+                                <div class="flex gap-2">
+                                    <span class="px-2 py-0.5 rounded text-[8px] font-black @(debt > 0 ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-600")">
+                                        @(debt > 0 ? "WITH BALANCE" : "CLEARED")
+                                    </span>
+                                    @* Mobile Delete *@
+                                    <button @onclick="() => ConfirmDelete(row.Item)" class="text-red-400 hover:text-red-600">
+                                        <i class="fas fa-trash-alt text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button @onclick="() => EditCustomer(row.Item)" class="flex-1 bg-slate-100 text-slate-600 py-2 rounded text-[10px] font-black uppercase">Edit Profile</button>
+                            </div>
+                        </div>
+                    </td>
+
+                    @* DESKTOP VIEW *@
+                    <td class="hidden md:table-cell px-6 py-4 border-b border-slate-50">
+                        <div class="flex flex-col">
+                            <span class="font-black text-slate-800 uppercase text-sm leading-tight">@row.Item.Name</span>
+                            <span class="text-[9px] font-bold text-slate-400 font-mono mt-1">ID: #@row.Item.Id</span>
+                        </div>
+                    </td>
+                    <td class="hidden md:table-cell px-6 py-4 text-right border-b border-slate-50 text-xs font-mono font-bold">@row.Item.ContactNumber</td>
+                    <td class="hidden md:table-cell px-6 py-4 text-right border-b border-slate-50 text-xs font-mono font-bold text-slate-600">₱ @row.Item.CreditLimit.ToString("N2")</td>
+                    <td class="hidden md:table-cell px-6 py-4 border-b border-slate-50 text-center">
+                        <span class="text-sm font-mono font-black @(debt > 0 ? "text-red-600" : "text-emerald-500")">₱ @debt.ToString("N2")</span>
+                    </td>
+                    <td class="hidden md:table-cell px-6 py-4 text-center border-b border-slate-50">
+                        <div class="flex justify-center gap-2">
+                            <button @onclick="() => EditCustomer(row.Item)" class="h-8 w-8 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-orange-500 transition-all">
+                                <i class="fas fa-edit text-xs"></i>
+                            </button>
+                            @* Desktop Delete *@
+                            <button @onclick="() => ConfirmDelete(row.Item)" class="h-8 w-8 rounded-lg border border-slate-200 bg-white text-red-400 hover:bg-red-50 hover:text-red-600 transition-all">
+                                <i class="fas fa-trash-alt text-xs"></i>
+                            </button>
+                        </div>
+                    </td>
+                </RowTemplate>
+            </GenericTable>
+        </div>
+    </div>
+</div>
+
+@* CUSTOMER MODAL *@
+@if (_showModal)
+{
+    <Modal IsVisible="_showModal"
+           DisableBackdropClick="true"
+           Title="@(_isEditMode ? "Edit Customer Profile" : "Create New Customer")"
+           ShowFooter="false"
+           customCss="!rounded-br-[15px] !rounded-bl-[15px]"
+           OnClose="() => _showModal = false">
+        <ChildContent>
+             <EditForm Model="_currentCustomer" OnValidSubmit="HandleSubmit" class="p-6">
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-slate-400">Full Name</label>
+                        <InputText @bind-Value="_currentCustomer.Name" class="w-full rounded-lg border border-slate-200 bg-slate-50 text-slate-500 p-3 text-sm font-bold outline-none focus:border-orange-500" placeholder="e.g. Juan Dela Cruz" />
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-slate-400">Contact Number</label>
+                        <InputText @bind-Value="_currentCustomer.ContactNumber" class="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-500 text-sm font-bold outline-none focus:border-orange-500" placeholder="09XX XXX XXXX" />
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-slate-400">Credit Limit (₱)</label>
+                        <InputNumber @bind-Value="_currentCustomer.CreditLimit" class="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-bold outline-none focus:border-orange-500" />
+                    </div>
+                </div>
+
+                <div class="mt-8 flex gap-3">
+                    <button type="button" @onclick="CloseModal" class="flex-1 rounded-xl bg-slate-100 py-3 text-xs font-black uppercase text-slate-400 hover:bg-slate-200">Cancel</button>
+                    <button type="submit" class="flex-1 rounded-xl bg-orange-500 py-3 text-xs font-black uppercase text-white shadow-lg shadow-orange-500/30 hover:bg-orange-600">
+                        @(_isEditMode ? "Save Changes" : "Register Customer")
+                    </button>
+                </div>
+            </EditForm>
+       
+        </ChildContent>
+        </Modal>
+   
+}
+
+@* DELETE CONFIRMATION MODAL *@
+@if (_showDeleteModal)
+{
+    <Modal IsVisible="_showDeleteModal"
+           Title="Confirm Deletion"
+           ShowFooter="false"
+           customCss="!rounded-br-[15px] !rounded-bl-[15px]"
+                   OnClose="() => _showDeleteModal = false">
+        <ChildContent>
+            <div class="p-6 text-center">
+                <div class="mb-4 flex justify-center">
+                    <div class="flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-red-600">
+                        <i class="fas fa-exclamation-triangle text-2xl"></i>
+                    </div>
+                </div>
+                <h3 class="mb-2 text-lg font-black uppercase text-slate-800">Are you sure?</h3>
+                <p class="mb-8 text-sm text-slate-500">
+                    You are about to delete <span class="font-bold text-slate-800">@_customerToDelete?.Name</span>.
+                    This action cannot be undone.
+                </p>
+
+                <div class="flex gap-3">
+                    <button type="button" @onclick="() => _showDeleteModal = false"
+                            class="flex-1 rounded-xl bg-slate-100 py-3 text-xs font-black uppercase text-slate-400 hover:bg-slate-200">
+                        Keep Customer
+                    </button>
+                    <button type="button" @onclick="() => DeleteCustomer(_customerToDelete.Id)"
+                            class="flex-1 rounded-xl bg-red-500 py-3 text-xs font-black uppercase text-white shadow-lg shadow-red-500/30 hover:bg-red-600">
+                        Yes, Delete
+                    </button>
+                </div>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+@code {
+    private GenericTable<CustomerModels> _tableRef = default!;
+    private List<CustomerModels> Customers = new();
+    private Dictionary<int, decimal> DebtCache = new();
+    private CustomerModels _currentCustomer = new();
+    private bool IsLoading = true;
+    private bool _showModal = false;
+    private bool _isEditMode = false;
+    private bool _showDeleteModal = false;
+    private CustomerModels? _customerToDelete;
+
+    private string _selectedLetter = "All";
+    private string _activeFilter = "All";
+    private string _searchTerm = "";
+
+    private string SearchTerm
+    {
+        get => _searchTerm;
+        set { if (_searchTerm != value) { _searchTerm = value; StateHasChanged(); } }
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        IsLoading = true;
+        try
+        {
+            Customers = await CustomerService.GetAllCustomers();
+            DebtCache.Clear();
+            foreach (var customer in Customers)
+            {
+                DebtCache[customer.Id] = await CreditService.GetTotalCustomerDebtAsync(customer.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            alertService.Error(ex.Message);
+        }
+        finally { IsLoading = false; }
+    }
+    // This replaces the previous ConfirmDelete
+    private void ConfirmDelete(CustomerModels customer)
+    {
+        // Safety check for debt
+        var debt = GetCachedDebt(customer.Id);
+        if (debt > 0)
+        {
+            alertService.Error($"Cannot delete {customer.Name}. Outstanding balance: ₱{debt:N2}");
+            return;
+        }
+
+        _customerToDelete = customer;
+        _showDeleteModal = true;
+    }
+    private async Task DeleteCustomer(int customerId)
+    {
+        try 
+        {
+            var success = await CustomerService.DeleteCustomer(customerId);
+            if (success)
+            {
+                alertService.Notify("Customer deleted successfully.");
+                await LoadData();
+                StateHasChanged();
+            }
+            else
+            {
+                alertService.Error("Failed to delete customer.");
+            }
+        }
+        catch (Exception ex)
+        {
+            alertService.Error($"Error: {ex.Message}");
+        }
+    }
+
+    private IEnumerable<CustomerModels> FilteredCustomers => Customers
+        .Where(c => string.IsNullOrWhiteSpace(SearchTerm) || c.Name.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase) || (c.ContactNumber?.Contains(SearchTerm) ?? false))
+        .Where(c => _selectedLetter == "All" || (c.Name?.StartsWith(_selectedLetter, StringComparison.OrdinalIgnoreCase) ?? false))
+        .OrderByDescending(c => _activeFilter == "Recent" ? c.Id : 0);
+
+    private void SetLetter(string letter) => _selectedLetter = letter;
+    private void SetFilter(string filter) => _activeFilter = filter;
+    private void ClearAllFilters() { _searchTerm = ""; _selectedLetter = "All"; _activeFilter = "All"; }
+    private decimal GetCachedDebt(int customerId) => DebtCache.TryGetValue(customerId, out var debt) ? debt : 0;
+
+    private void OpenAddModal() { _isEditMode = false; _currentCustomer = new(); _showModal = true; }
+    private void EditCustomer(CustomerModels customer)
+    {
+        _isEditMode = true;
+        _currentCustomer = new CustomerModels
+        { // Clone to prevent direct binding before save
+            Id = customer.Id,
+            Name = customer.Name,
+            ContactNumber = customer.ContactNumber,
+            CreditLimit = customer.CreditLimit
+        };
+        _showModal = true;
+    }
+    private void CloseModal() => _showModal = false;
+
+    private async Task HandleSubmit()
+    {
+        bool success = _isEditMode ? await CustomerService.UpdateCustomer(_currentCustomer) : await CustomerService.AddCustomer(_currentCustomer);
+        if (success)
+        {
+            alertService.Notify(_isEditMode ? "Customer Updated" : "Customer Registered");
+            CloseModal();
+            await LoadData();
+        }
+        else
+        {
+            alertService.Error("Action Failed");
+        }
+    }
+}

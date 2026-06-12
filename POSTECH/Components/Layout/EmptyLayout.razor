@@ -1,0 +1,20 @@
+﻿@inherits LayoutComponentBase
+@using TCZPOS.Components.Modules
+
+<div class="empty-layout">
+    @Body
+</div>
+<AlertPopup />
+<style>
+    html, body, #app {
+        background-color: transparent !important;
+    }
+    /* Ensure the layout doesn't add padding or scrollbars */
+    .empty-layout {
+        margin: 0 !important;
+        padding: 0 !important;
+        height: 100vh !important;
+        width: 100vw !important;
+        overflow: hidden;
+    }
+</style>

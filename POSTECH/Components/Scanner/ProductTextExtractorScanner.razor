@@ -1,0 +1,205 @@
+﻿@using TCZPOS.Components.Scanner
+@inject ScannerNativeServices ScannerService
+
+<button @onclick="TakeProductPhoto"
+        disabled="@(!IsEnabled || IsProcessing)"
+        class="group flex transition-all disabled:opacity-40 disabled:grayscale enabled:active:scale-95 @GetVariantClasses() @CustomClass">
+
+    <div class="flex h-10 w-10 flex-none items-center justify-center rounded-xl @IconBg @IconText">
+        @if (IsProcessing)
+        {
+            <div class="spinner-border spinner-border-sm text-light" role="status"></div>
+        }
+        else if (CustomIcon != null)
+        {
+            @CustomIcon
+        }
+        else
+        {
+            <i class="@Icon @(Variant == ButtonVariant.Sidebar ? "text-xs" : "text-lg")"></i>
+        }
+    </div>
+
+    @if (Variant != ButtonVariant.IconOnly)
+    {
+        <div class="flex flex-col @(Variant == ButtonVariant.Grid ? "items-center mt-1" : "text-left ml-4")">
+            @if (!string.IsNullOrEmpty(Shortcut))
+            {
+                <span class="text-[10px] font-bold uppercase text-slate-500">@Shortcut</span>
+            }
+            <span class="text-xs font-black uppercase @LabelBg whitespace-nowrap">
+                @(IsProcessing ? "Processing..." : Label)
+            </span>
+        </div>
+    }
+</button>
+@if (ShowSelectionModal)
+{
+    <Modal DisableBackdropClick="true"
+           IsVisible="ShowSelectionModal"
+           Title="Select Product Details"
+           OnClose="() => ShowSelectionModal = false">
+        <ChildContent>
+            <div class="p-2">
+                <p class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">
+                    Detected Text (Tap to Select)
+                </p>
+            
+                @* Badge/Chip Container *@
+                <div class="flex flex-wrap gap-2 max-h-64 overflow-y-auto">
+                    @foreach (var line in ScannedLines)
+                    {
+                        bool isSelected = SelectedItems.Contains(line);
+                    
+                        <button @onclick="() => ToggleSelection(line)"
+                                class="px-4 py-2 rounded-full border text-sm font-semibold transition-all active:scale-90 flex items-center gap-2
+                            @(isSelected
+                                                                                                                              ? "bg-cyan-600 border-cyan-400 text-white shadow-md shadow-cyan-900/20"
+                                                                                                                              : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200")">
+                        
+                            <span>@line</span>
+                        
+                            @if (isSelected)
+                            {
+                                <i class="fas fa-times-circle text-[10px] opacity-80"></i>
+                            }
+                            else
+                            {
+                                <i class="fas fa-plus text-[10px] opacity-40"></i>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+        </ChildContent>
+
+        <CustomFooter>
+            <div class="flex items-center justify-between w-full ">
+                <span class="text-xs font-bold text-white uppercase">
+                    @SelectedItems.Count Items Selected
+                </span>
+            
+                <div class="flex gap-2">
+                    <button @onclick="() => SelectedItems.Clear()"
+                            class="px-4 py-2 bg-slate-500 text-white text-xs font-black uppercase hover:text-slate-600">
+                        Clear Selection
+                    </button>
+                
+                    <button @onclick="ConfirmSelection"
+                            disabled="@(!SelectedItems.Any())"
+                            class="px-6 py-2 bg-slate-900 text-white rounded-lg font-black uppercase text-xs shadow-lg active:scale-95 disabled:opacity-30">
+                        Apply
+                    </button>
+                </div>
+            </div>
+        </CustomFooter>
+    </Modal>
+   
+}
+@code {
+    [Parameter] public EventCallback<string> OnScanResult { get; set; }
+    // --- REUSED BUTTON PARAMETERS ---
+    [Parameter] public ButtonVariant Variant { get; set; } = ButtonVariant.Sidebar;
+    [Parameter] public string Icon { get; set; } = "fas fa-barcode";
+    [Parameter] public string IconBg { get; set; } = "bg-blue-600";
+    [Parameter] public string IconText { get; set; } = "text-white";
+    [Parameter] public string Label { get; set; } = "Scan";
+    [Parameter] public string LabelBg { get; set; } = "text-white";
+    [Parameter] public string Shortcut { get; set; } = "";
+    [Parameter] public bool IsEnabled { get; set; } = true;
+    [Parameter] public RenderFragment? CustomIcon { get; set; }
+    
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+  
+    private string? OCRResult;
+    private bool IsProcessing = false;
+    private List<string> ScannedLines = new();
+    private bool ShowSelectionModal = false;
+    private List<string> SelectedItems = new();
+    private async Task TakeProductPhoto()
+    {
+        try
+        {
+            IsProcessing = true;
+            SelectedItems.Clear();
+            StateHasChanged();
+
+            // 1. Capture the result
+            var result = await ScannerService.CapturePhotoAsync();
+
+            // 2. IMPORTANT: Wrap the UI update in InvokeOnMainThreadAsync
+            // This ensures Blazor sees the 'ShowSelectionModal = true' change immediately
+            await InvokeAsync(() =>
+            {
+                if (!string.IsNullOrWhiteSpace(result))
+                {
+                    ScannedLines = result.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+                                         .Select(x => x.Trim())
+                                         .Distinct()
+                                         .ToList();
+
+                    if (ScannedLines.Count > 0) // Changed to > 0 for testing
+                    {
+                        ShowSelectionModal = true;
+                    }
+                }
+            
+                IsProcessing = false;
+                StateHasChanged(); // This is now inside the Dispatcher
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Scan Error: {ex.Message}");
+            IsProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleSelection(string line)
+    {
+        if (SelectedItems.Contains(line))
+            SelectedItems.Remove(line);
+        else
+            SelectedItems.Add(line);
+    }
+
+    private async Task ConfirmSelection()
+    {
+        if (SelectedItems.Any())
+        {
+            // Join selected items with a space or comma
+            string finalResult = string.Join(" ", SelectedItems);
+            
+            ShowSelectionModal = false;
+            if (OnScanResult.HasDelegate)
+            {
+                await OnScanResult.InvokeAsync(finalResult);
+            }
+        }
+    }
+
+    private async Task SelectText(string selectedText)
+    {
+        ShowSelectionModal = false;
+        if (OnScanResult.HasDelegate)
+        {
+            await OnScanResult.InvokeAsync(selectedText);
+        }
+    }
+    // --- REUSED LAYOUT LOGIC ---
+    private string CustomClass => AdditionalAttributes != null && AdditionalAttributes.TryGetValue("class", out var c) ? c.ToString() ?? "" : "";
+
+    private string GetVariantClasses()
+    {
+        bool hasCustom = !string.IsNullOrEmpty(CustomClass);
+        return Variant switch
+        {
+            ButtonVariant.Grid => $"flex-col items-center justify-center rounded-xl {(hasCustom ? "" : "p-3 bg-slate-800 border border-slate-700")}",
+            ButtonVariant.IconOnly => $"items-center justify-center rounded-lg {(hasCustom ? "" : "p-2 bg-slate-800/50")}",
+            _ => $"items-center gap-0 rounded-2xl border border-slate-700/50 p-4 w-full hover:bg-slate-700 {(hasCustom ? "" : "bg-slate-800/50")}"
+        };
+    }
+}

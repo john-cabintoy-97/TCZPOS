@@ -1,0 +1,1894 @@
+﻿@page "/pos/terminal"
+@using System.Text.RegularExpressions;
+@inject AlertServices Alert
+@inject NavigationManager Nav
+@using TCZPOS.Components.Modules
+@using TCZPOS.Components.Modules.UX
+@using TCZPOS.Components.Pages.POS.Components
+@inject CartServices cartService;
+@inject ProductServices productService;
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthStateProvider CustomAuthStateProvider
+@inject HeldTransactionService heldService;
+@implements IDisposable
+@layout EmptyLayout
+@inject IJSRuntime JSRuntime
+@inject SaleServices saleService
+@inject CustomerCreditService CreditService
+@using CurrieTechnologies.Razor.Vibration;
+@inject HardwareServices hardwareServices;
+@using TCZPOS.Components.Guard.Interface
+@inject CustomerService customerService;
+@inject IGatekeeperService Gatekeeper
+
+
+<div @onclick="(() => _mainContainer.FocusAsync())" @ref="_mainContainer" class="flex h-screen w-full flex-col font-sans text-white overflow-hidden" tabindex="0" focus:outline-none"
+     @onkeydown="HandleGlobalKeyDown">
+    <POSHeader CashierName="@(Gatekeeper.ActiveStaff?.Name ?? "Unknown")"
+               TerminalName="Terminal 01"
+               TransactionNo="@transactionNo"
+               TransactionDate="@transactionDate"
+               NetTotal="@NetTotal"
+               VatAmount="@VatAmount" />
+
+    <div class="flex flex-1 flex-col overflow-hidden lg:flex-row">
+        @* MAIN CONTENT AREA *@
+        <div class="flex flex-1 flex-col overflow-hidden bg-white text-slate-800">
+            @* BARCODE & INFO *@
+            <div class="grid grid-cols-1 gap-4 border-b bg-slate-50 p-4 md:grid-cols-2">
+                <div class="space-y-1">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase">
+                        Transaction No: <span class="ml-2 font-mono text-red-500">@transactionNo</span>
+                    </p>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase">
+                        Date: <span class="ml-2 text-slate-800">@transactionDate</span>
+                    </p>
+                </div>
+    
+                <POSActions @ref="_barcodeScanner"
+                            IsActive="@isTransactionActive"
+                            @bind-Value="_barcodeInput"
+                            OnFocus="@RefocusAsync"
+                            OnSubmit="HandleBarcodeKeyUp" />
+
+            </div>
+
+        
+            @* TABLE AREA *@
+            <div class="flex flex-1 flex-col overflow-hidden bg-white">
+                <GenericTable TItem="CartModels"
+                              TableTitle="Current Transaction"
+                              IsLoading="isLoading"
+                              ShowSelection="false"
+                              Items="CartItems"
+                              OnRowClick="SelectItem"
+                              RowClassFunc='(item) => _selectedRowItem?.Id == item.Id ? "bg-orange-50 border-l-4 border-orange-500 shadow-inner" : "hover:bg-slate-100"'
+                              TotalCount="CartItems.Count"
+                              PageSize="10">
+                    <TableHeader>
+                        <th class="md:hidden px-4 py-3 text-left text-xs uppercase tracking-wider">
+                            Transaction Items
+                        </th>
+                        <th class="hidden md:table-cell w-12 px-4 py-3 text-center">#</th>
+                        <th class="hidden md:table-cell px-4 py-3">Product Details</th>
+                        
+                        <th class="hidden md:table-cell px-4 py-3">Barcode/Code</th>
+                        <th class="hidden md:table-cell w-32 px-4 py-3 text-right">Rate</th>
+                        <th class="hidden md:table-cell w-40 px-4 py-3 text-center">Qty</th>
+                        <th class="hidden md:table-cell w-32 px-4 py-3 text-right">Total</th>
+                        <th class="hidden md:table-cell w-20 px-4 py-3 text-center">Action</th>
+                    </TableHeader>
+                    <RowTemplate Context="row">
+                        @* --- MOBILE VIEW (Same as before with separation line) --- *@
+                        <td colspan="7" class="md:hidden p-0 border-b-4 border-slate-200 bg-white hover:bg-slate-50 transition-colors">
+                            <div class="flex flex-col gap-3 p-4">
+                                @* Qty Control *@
+                                <div class="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+                                    <span class="text-[10px] font-bold text-slate-400 uppercase">Quantity</span>
+                                    <div class="flex items-center border border-slate-300 rounded-lg overflow-hidden bg-white">
+                                        <button @onclick="() => DecreaseQty(row.Item)" class="px-4 py-1 bg-slate-50 text-slate-600 active:bg-slate-200">-</button>
+                                        <input type="number"
+                                               value="@row.Item.Quantity"
+                                               readonly
+                                               min="1"
+                                               max="@(productService.ProductDisplayList.FirstOrDefault(p => p.Product.Barcode == row.Item.Barcode)?.Product.StockLevel ?? 999)"
+                                               class="w-12 text-center font-mono text-xs font-bold border-none outline-none focus:ring-0" />
+                                        <button @onclick="() => IncreaseQty(row.Item)" class="px-4 py-1 bg-slate-50 text-slate-600 active:bg-slate-200">+</button>
+                                    </div>
+                                </div>
+
+                                @* Product Details *@
+                                <div class="flex justify-between items-start">
+                                    <div class="flex flex-col">
+                                        <span class="font-black text-slate-800 uppercase text-sm">@row.Item.ProductName</span>
+                                        @if (row.Item.ItemDiscountAmount > 0)
+                                        {
+                                            <div class="flex items-center gap-1 mt-1 mb-1">
+                                                <span class="w-fit text-[8px] bg-red-600 text-white px-1.5 py-0.5 rounded-sm font-black uppercase shadow-sm">
+                                                    SAVE ₱@row.Item.ItemDiscountAmount.ToString("N2")
+                                                </span>
+                                                @if (row.Item.DiscountType == "Percent")
+                                                {
+                                                    <span class="text-[9px] text-slate-400 font-bold">(@row.Item.DiscountValue%)</span>
+                                                }
+                                            </div>
+                                        }
+                                        <span class="text-[9px] text-slate-400 font-mono">BC: @row.Item.Barcode | PC: @row.Item.Pcode</span>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="text-[9px] text-slate-400 uppercase font-black">Sub-Total</div>
+                                        <div class="font-mono text-lg font-black text-orange-600">₱ @row.Item.SubTotal.ToString("N2")</div>
+                                    </div>
+                                </div>
+
+                                @* Action Bar *@
+                                <div class="flex justify-between items-center pt-3 border-t border-slate-100">
+                                    <span class="text-xs text-slate-500 font-mono">Rate: ₱ @row.Item.UnitPrice.ToString("N2")</span>
+                                    <button @onclick="() => RemoveItem(row.Item.Id)"
+                                            class="flex items-center gap-2 bg-red-50 text-red-500 px-3 py-1.5 rounded-md font-bold text-[10px] uppercase">
+                                        <i class="fas fa-trash-alt"></i> Remove
+                                    </button>
+                                </div>
+                            </div>
+                        </td>
+
+                        @* --- DESKTOP VIEW WITH HOVER --- *@
+                        <td class="hidden md:table-cell px-4 py-4 text-center text-slate-400 font-mono text-[10px] border-b border-slate-100 transition-colors">
+                            @row.Index
+                        </td>
+    
+                        <td class="hidden md:table-cell px-4 py-4 border-b border-slate-100 transition-colors">
+                            <div class="flex flex-col">
+                                <span class="font-bold text-slate-800 uppercase leading-tight group-hover:text-orange-600 transition-colors">@row.Item.ProductName</span>
+                                @if (row.Item.ItemDiscountAmount > 0)
+                                {
+                                    <div class="flex items-center gap-1 mt-1">
+                                        <span class="w-fit text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded-sm font-black uppercase">
+                                            SAVE ₱@row.Item.ItemDiscountAmount.ToString("N2")
+                                        </span>
+                                        @if (row.Item.DiscountType == "Percent")
+                                        {
+                                            <span class="text-[9px] text-slate-400 font-bold">(@row.Item.DiscountValue%)</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </td>
+
+                        <td class="hidden md:table-cell px-4 py-4 border-b border-slate-100 transition-colors">
+                            <div class="flex flex-col gap-0.5 opacity-80">
+                                <span class="font-mono text-[11px] text-slate-700">BC: @row.Item.Barcode</span>
+                                <span class="font-mono text-[10px] text-slate-400 uppercase">PC: @row.Item.Pcode</span>
+                            </div>
+                        </td>
+
+                        <td class="hidden md:table-cell px-4 py-4 text-right font-mono text-xs text-slate-600 border-b border-slate-100 transition-colors">
+                            ₱ @row.Item.UnitPrice.ToString("N2")
+                        </td>
+                        <td class="hidden md:table-cell px-4 py-4 text-center border-b border-slate-100 transition-colors">
+                            <div class="flex items-center justify-center">
+                                <div @onclick:stopPropagation="true"
+                                     class="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm hover:border-orange-400 transition-all">
+            
+                                    <button @onclick="() => DecreaseQty(row.Item)"
+                                            class="px-2 py-1 bg-slate-50 hover:bg-orange-50 text-slate-600 active:bg-orange-100 transition-colors">
+                                        -
+                                    </button>
+            
+                                    <input type="number"
+                                           @bind="row.Item.Quantity"
+                                           @bind:event="oninput"
+                                           @onchange="@(async (e) => await ManualUpdateQty(row.Item, row.Item.Quantity.ToString()))"
+                                           min="1"
+                                           max="@(productService.ProductDisplayList.FirstOrDefault(p => p.Product.Barcode == row.Item.Barcode)?.Product.StockLevel ?? 999)"
+                                           onkeypress="return (event.charCode != 8 && event.charCode == 0 || (event.charCode >= 48 && event.charCode <= 57))"
+                                           class="w-12 text-center font-mono text-xs font-bold text-slate-800 border-none outline-none focus:ring-0" />
+            
+                                    <button @onclick="() => IncreaseQty(row.Item)"
+                                            class="px-2 py-1 bg-slate-50 hover:bg-orange-50 text-slate-600 active:bg-orange-100 transition-colors">
+                                        +
+                                    </button>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="hidden md:table-cell px-4 py-4 text-right border-b border-slate-100 transition-colors">
+                            <span class="font-mono text-sm font-black text-slate-900">₱ @row.Item.SubTotal.ToString("N2")</span>
+                        </td>
+
+                        <td class="hidden md:table-cell px-4 py-4 text-center border-b border-slate-100 transition-colors">
+                            <button @onclick="() => RemoveItem(row.Item.Id)"
+                                    class="text-slate-300 hover:text-red-600 hover:scale-110 transition-all p-2">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </td>
+                      
+                    </RowTemplate>
+                </GenericTable>
+            </div>
+
+            @* UPDATED TOTALS FOOTER *@
+            <POSTotals SubTotal="SubTotal" VatAmount="VatAmount" NetTotal="NetTotal" />
+        </div>
+
+        @* DESKTOP SIDEBAR (Visible only on LG screens) *@
+        <POSSidebar IsTransactionActive="isTransactionActive"
+                    HasItems="@(CartItems.Count > 0)"
+                    OnNewTransaction="StartNewTransaction"
+                    OnSearch="OpenProductSearch"
+                    OnDiscount="OpenDiscountModal"
+                    IsItemSelected="@(_selectedRowItem != null)"
+                    OnSettle="OpenSettleModal"
+                    OnSales="OpenSalesModal"
+                    OnHold="OpenHoldModal"
+                    HeldOrdersCount="@HeldOrdersCount"
+                    OnClear="() => cartService.ClearAsync()"
+                    OnExit="HandleExit" />
+    </div>
+
+    @* MOBILE BOTTOM NAVIGATION *@
+    <POSMobileNav IsTransactionActive="@isTransactionActive"
+                  HasItems="@(CartItems.Count > 0)"
+                  IsItemSelected="@(_selectedRowItem != null)"
+                  OnNewTransaction="StartNewTransaction"
+                  OnSearch="OpenProductSearch"
+                  OnSales="OpenSalesModal"
+                  OnHold="OpenHoldModal"
+                  HeldOrdersCount="@HeldOrdersCount"
+                  OnDiscount="OpenDiscountModal"
+                  OnSettle="OpenSettleModal"
+                  OnExit="HandleExit" />
+</div>
+
+@if (_isSearchModalVisible)
+{
+    <Modal IsVisible="_isSearchModalVisible"
+           Title="Select Product"
+           ShowFooter="false"
+           customCss="!rounded-br-[15px] !rounded-bl-[15px]"
+           OnClose="() => _isSearchModalVisible = false">
+        <ChildContent>
+            <div class="mb-0 p-3 ">
+                <div class="flex flex-1  overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-orange-500 focus-within:ring-1 focus-within:ring-orange-500/20">
+                    <input type="text" @bind="ProductSearchTerm" @bind:event="oninput"
+                           @onkeydown="HandleSearchKeyDown"
+                           class="w-full text-slate-800 px-4 py-2 text-sm font-medium outline-none"
+                           placeholder="Search description or barcode..." />
+                    <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                        <i class="fas fa-search text-xs"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="h-[50vh]">
+                <GenericTable TItem="ProductModels"
+                              Items="FilteredProducts"
+                              ShowSelection="false"
+                              customCss="rounded-br-[15px] rounded-bl-[15px]"
+                              TableTitle="Product List"
+                              TotalCount="FilteredProducts.Count()"
+                              PageSize="5">
+                    <TableHeader>
+                        <th class=" px-4 py-3 text-left text-xs uppercase tracking-wider">
+                            Products List
+                        </th>
+                    </TableHeader>
+                    <RowTemplate Context="row">
+                        @{
+                            // Unified the variable name to 'inCart'
+                            var inCart = CartItems.FirstOrDefault(x => x.ProductId == row.Item.Id)?.Quantity ?? 0;
+                            var isExhausted = row.Item.StockLevel <= inCart;
+                            var remainingStock = row.Item.StockLevel - inCart;
+                        }
+
+                        <td colspan="7" class=" p-0 border-b-4 border-slate-200 bg-white hover:bg-slate-50 transition-colors">
+                            <div class="flex flex-col gap-3 p-4">
+                                @* Qty Control *@
+                                <div class="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+                                    <span class="text-[10px] font-bold text-slate-400 uppercase">Quantity</span>
+                                    <div class="flex items-center border border-slate-300 rounded-lg overflow-hidden bg-white">
+                                        <input type="number"
+                                               min="1"
+                                               max="@remainingStock"
+                                               disabled="@isExhausted"
+                                               @bind="row.Item.TempQty"
+                                               class="w-16 rounded border border-slate-300 bg-white px-2 py-1 text-center text-xs font-bold text-slate-800 outline-none focus:border-orange-500 @(isExhausted ? "opacity-50 bg-gray-100" : "")" />
+
+                                    </div>
+                                </div>
+
+                                @* Product Details *@
+                                <div class="flex justify-between items-start">
+                                    <div class="flex flex-col">
+                                        <span class="font-black text-slate-800 uppercase text-sm">@row.Item.Name</span>
+                                        <span class="text-[9px] text-slate-400 font-mono">BC: @row.Item.Barcode | PC: @row.Item.Pcode</span>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="text-[9px] text-slate-400 uppercase font-black">Total Stock</div>
+                                        <span class="font-mono text-xs @row.Item.StockStatusColor">@row.Item.StockLevel @row.Item.Unit</span>
+                                        @if (inCart > 0)
+                                        {
+                                            <div class="text-[9px] font-mono text-lg font-black text-orange-600">
+                                                (@inCart in cart)
+                                            </div>
+                                        }
+                                       
+                                    </div>
+                                </div>
+
+                                @* Action Bar *@
+                                <div class="flex justify-between items-center pt-3 border-t border-slate-100">
+                                    <span class="text-xs text-slate-500 font-mono">Price:  ₱ @row.Item.SellingPrice.ToString("N2")</span>
+                                    <button type="button"
+                                            @onclick="() => AddToCartFromSearch(row.Item)"
+                                            disabled="@isExhausted"
+                                            class="rounded-lg px-4 py-1.5 text-[10px] font-black text-white transition-all
+                                        @(isExhausted ? "bg-gray-400 cursor-not-allowed" : "bg-orange-500 hover:bg-orange-600 active:scale-95")">
+                                        @(isExhausted ? "MAXED" : "SELECT")
+                                    </button>
+                                    
+                                </div>
+                            </div>
+                        </td>
+                    </RowTemplate>
+                </GenericTable>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+
+@if (_isSettleModalVisible)
+{
+    <Modal IsVisible="_isSettleModalVisible"
+           DisableBackdropClick="true"
+           CustomFooterCss="px-6 py-4"
+           Title="Settle Payment"
+           OnClose="() => _isSettleModalVisible = false">
+        <ChildContent>
+            <div class="flex flex-col gap-4 p-6 bg-[#1E2939]">
+                <div class="rounded-xl bg-slate-900 p-4 text-right">
+                    <p class="text-[10px] font-bold uppercase text-slate-400">Total Amount Due</p>
+                    <p class="font-mono text-3xl font-black text-[#a3ff00]">₱ @NetTotal.ToString("N2")</p>
+                </div>
+
+                <div class="space-y-1">
+                    <label class="text-[10px] font-bold uppercase text-slate-500">Amount Tendered</label>
+                    <input @onkeyup="HandleSettleKeyUp" type="number" @bind="_amountTendered" @bind:event="oninput"
+                           class="w-full rounded-lg border-2 border-slate-200 bg-white p-3 text-right font-mono text-2xl font-bold text-slate-800 outline-none focus:border-orange-500"
+                           placeholder="0.00" />
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-bold uppercase text-slate-500">Payment Method</label>
+                    <div class="grid grid-cols-3 gap-2">
+                        @foreach (var method in new[] { "Cash", "GCash", "Credit" })
+                        {
+                            <button @onclick="() => SetPaymentMethod(method)"
+                                    class="@(_selectedPaymentType == method
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ? "bg-orange-500 border-orange-500 text-white shadow-md"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        : "bg-slate-800 border-slate-700 text-slate-400")
+                                flex flex-col items-center justify-center py-3 rounded-xl border-2 transition-all active:scale-95">
+                                <i class="@(method == "Cash" ? "fas fa-money-bill-wave" : method == "GCash" ? "fas fa-mobile-alt" : "fas fa-hand-holding-usd") mb-1"></i>
+                                <span class="text-[10px] font-black uppercase">@method</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                    @foreach (var cash in new decimal[] { 50, 100, 200, 500, 1000 })
+                    {
+                        <button @onclick="() => QuickCash(cash)"
+                                class="rounded-lg border border-slate-200 bg-slate-500 text-white py-2 text-xs font-bold hover:bg-slate-100 transition-all">
+                            +₱ @cash
+                        </button>
+                    }
+                    <button @onclick="() => _amountTendered = 0" class="rounded-lg bg-red-50 text-red-600 py-2 text-xs font-bold hover:bg-red-100">
+                        CLEAR
+                    </button>
+                </div>
+
+                @* Change Due Display *@
+                <div class="flex items-center justify-between border-t border-dashed border-slate-300 pt-4">
+                    <span class="text-sm font-bold text-white uppercase">Change Due</span>
+                    <span class="font-mono text-2xl text-white @(ChangeDue < 0 ? "text-red-500" : "text-slate-900")">
+                        ₱ @(ChangeDue < 0 ? "0.00" : ChangeDue.ToString("N2"))
+                    </span>
+                </div>
+
+               
+            </div>
+        </ChildContent>
+        <CustomFooter>
+            @if (_selectedPaymentType == "Credit")
+            {
+                <div class="w-full flex flex-col gap-2">
+                    @if (_selectedCreditCustomer != null)
+                    {
+                        <div class="flex items-center justify-between px-4 py-2 bg-slate-800 rounded-lg border border-orange-500/30">
+                            <span class="text-[10px] text-slate-400 uppercase font-bold">Debtor:</span>
+                            <span class="text-xs text-orange-400 font-black uppercase">@_selectedCreditCustomer.Name</span>
+                        </div>
+                    }
+                    <button disabled="@(_selectedCreditCustomer == null)"
+                            @onclick="ConfirmPayment"
+                            class="mt-2 w-full rounded-2xl bg-blue-600 py-4 text-sm font-black uppercase text-white shadow-lg transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50">
+                        <i class="fas fa-file-invoice-dollar mr-2"></i> Confirm Credit Sale
+                    </button>
+                </div>
+            }
+            else
+            {
+                <button disabled="@(ChangeDue < 0 || NetTotal <= 0)"
+                        @onclick="ConfirmPayment"
+                        class="mt-2 w-full rounded-2xl bg-orange-500 py-4 text-sm font-black uppercase text-white shadow-lg shadow-orange-500/30 transition-all hover:bg-orange-600 active:scale-95 disabled:grayscale">
+                    <i class="fas fa-check-circle mr-2"></i> Confirm Payment
+                </button>
+            }
+        </CustomFooter>
+    </Modal>
+}
+
+@if (_isCustomerPickerVisible)
+{
+    <Modal IsVisible="_isCustomerPickerVisible"
+           Title="Credit Customer Selection"
+           ShowFooter="false"
+           customCss="!rounded-br-[15px] !rounded-bl-[15px]"
+           OnClose="() => _isCustomerPickerVisible = false">
+        <ChildContent>
+            <div class="flex flex-col gap-4 p-4 ">
+                @* Search/List Section *@
+                <div class="space-y-2">
+                    <label class="text-[10px] font-bold uppercase text-slate-500">Search Existing Debtor</label>
+                    
+                    <ComboBox TItem="CustomerModels"
+                              BgClass="!p-1 !bg-white p-3 text-slate-800"
+                              BorderClass="border-slate-700"
+                              IconClass="fas fa-users"
+                              TValue="int?"
+                              Value="_selectedCreditCustomer?.Id"
+                              ValueChanged="HandleCustomerSelected"
+                              Items="customerService.CustomerList"
+                              ValueSelector="@(c => (int?)c.Id)"
+                              SearchSelector="@(c => c.Name)"
+                             >
+                        <ItemTemplate>
+                            <div class="flex justify-between items-center w-full">
+                                <span class="font-bold">@context.Name</span>
+                                <span class="text-[9px] opacity-50 font-mono">Limit: ₱@context.CreditLimit.ToString("N2")</span>
+                            </div>
+                        </ItemTemplate>
+                    </ComboBox>
+                </div>
+
+                @if (_selectedCreditCustomer != null)
+                {
+                    @* Show this if an existing customer is picked from the ComboBox *@
+                    <div class="mt-4 p-4 rounded-xl border border-orange-500/30 bg-orange-500/10 animate-in fade-in zoom-in duration-200">
+                        <div class="flex items-center justify-between mb-3">
+                            <div>
+                                <p class="text-[10px] text-orange-500 uppercase font-black">Selected Debtor</p>
+                                <p class="text-slate-500 font-bold">@_selectedCreditCustomer.Name</p>
+                            </div>
+                            <button @onclick="() => _selectedCreditCustomer = null" class="text-slate-500 hover:text-red-500">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+        
+                        <button @onclick="ConfirmSelection"
+                                class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg text-xs font-black uppercase transition-all shadow-lg shadow-green-900/20">
+                            Proceed with @(_selectedCreditCustomer.Name.Split(' ')[0])
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    @* Show the Register Section only if no one is selected yet *@
+                    <div class="relative">
+                        <div class="absolute inset-0 flex items-center"><span class="w-full border-t border-slate-800"></span></div>
+                        <div class="relative flex justify-center text-[10px] uppercase font-black">
+                            <span class="text-slate-600">OR REGISTER NEW</span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-3 bg-[#1E2939] p-4 rounded-xl border border-slate-800">
+                        <input type="text" @bind="_newCustomerName" placeholder="Full Name"
+                               class="w-full text-slate-800 bg-white border border-slate-700 rounded-lg p-2 text-sm " />
+                        <input type="text" @bind="_newCustomerPhone" placeholder="Phone Number"
+                               class="w-full text-slate-800 bg-white border border-slate-700 rounded-lg p-2 text-sm " />
+
+                        <button @onclick="RegisterAndSelectCustomer"
+                                disabled="@string.IsNullOrWhiteSpace(_newCustomerName)"
+                                class="w-full bg-orange-600 hover:bg-orange-700 text-white py-2 rounded-lg text-xs font-black uppercase transition-all disabled:opacity-50">
+                            Register & Use
+                        </button>
+                    </div>
+                }
+            </div>
+        </ChildContent>
+    </Modal>
+}
+
+@if (_isDiscountModalVisible)
+{
+
+    <Modal IsVisible="_isDiscountModalVisible"
+           Title="Apply Discount"
+           OnClose="() => _isDiscountModalVisible = false">
+        <ChildContent>
+            <div class="flex flex-col gap-6 p-6">
+                <div class="flex rounded-xl bg-slate-100 p-1.5 shadow-inner">
+                    <button type="button"
+                            @onclick='() => _discountType = "Percent"'
+                            class="flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all duration-200
+                        @(_discountType == "Percent" ? "bg-orange-500 text-white shadow-md ring-1 ring-orange-400" : "text-slate-400 hover:text-slate-600")">
+                        Percent (%)
+                    </button>
+        
+                    <button type="button"
+                            @onclick='() => _discountType = "Fixed"'
+                            class="flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all duration-200
+                        @(_discountType == "Fixed" ? "bg-orange-50 text-orange-600 shadow-md ring-1 ring-orange-200" : "text-slate-400 hover:text-slate-600")">
+                        Fixed (₱)
+                    </button>
+                </div>
+
+                @* INPUT FIELD - Focused Design *@
+                <div class="space-y-2">
+                    <div class="flex justify-between items-end">
+                        <label class="text-[10px] font-black uppercase tracking-widest text-slate-400">Discount Value</label>
+                        <span class="text-[10px] font-mono text-slate-300">@(_discountType == "Percent" ? "%" : "PHP")</span>
+                    </div>
+                    <div class="relative">
+                        <div class="space-y-2">
+                            <input type="number" min="0" @bind="_discountValueString" @bind:event="oninput"
+                                   class="w-full rounded-lg border-2 border-slate-200 bg-white p-2 text-right font-mono text-2xl font-bold text-slate-800 outline-none focus:border-orange-500"
+                                   placeholder="0.00" />
+                            <span class="text-[10px] font-mono text-slate-300">@(_discountType == "Percent" ? "Enter percentage (0-100)" : "Enter fixed amount in PHP")</span>
+                        </div>
+                    </div>
+                </div>
+
+                @* DEDUCTION PREVIEW - Redesigned for clarity *@
+                <div class="relative overflow-hidden rounded-2xl bg-slate-600 p-6 text-center border-2 border-dashed border-red-100">
+                    <p class="text-[10px] font-black uppercase tracking-tighter text-white mb-1">Estimated Deduction</p>
+                    <div class="flex items-center justify-center gap-2">
+                        <span class="text-yellow-700 font-black text-2xl">-</span>
+                        <span class="font-mono text-4xl font-black text-yellow-600">₱ @CalculateDiscountAmount().ToString("N2")</span>
+                    </div>
+                </div>
+            </div>
+        </ChildContent>
+
+        <CustomFooter>
+            <div class="p-2 w-full">
+                <Button Variant="ButtonVariant.Sidebar"
+                        Icon="fas fa-check-circle"
+                        Label="Apply Discount"
+                        IsEnabled="@(_discountValue > 0)"
+                        OnClick="ApplyDiscount"
+                        class="w-full bg-orange-500 border-none9+6 rounded-2xl shadow-xl shadow-slate-900/30 text-lg uppercase tracking-widest hover:bg-black transition-all active:scale-[0.98]" />
+            </div>
+        </CustomFooter>
+    </Modal>
+}
+
+@if (_isSalesModalVisible)
+{
+    <Modal IsVisible="_isSalesModalVisible"
+           Title="Daily Sales"
+           ShowFooter="false"
+           customCss="rounded-br-[15px] rounded-bl-[15px]"
+           OnClose="() => _isSalesModalVisible = false">
+        <ChildContent>
+            <div class="p-4  space-y-3 shadow-md border-b border-slate-100">
+                <div class="flex flex-col sm:flex-row gap-3">
+        
+                    <div class="flex flex-1 max-w-md overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-orange-500 focus-within:ring-1 focus-within:ring-orange-500/20">
+                        <input type="text" @bind="_salesSearchQuery" @bind:event="oninput"
+                               class="w-full text-slate-800 px-4 py-2 text-sm font-medium outline-none"
+                               placeholder="Serch Invoice and Time..." />
+                        <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                            <i class="fas fa-search text-xs"></i>
+                        </div>
+                    </div>
+                    <div class="flex flex-1 max-w-md overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-orange-500 focus-within:ring-1 focus-within:ring-orange-500/20">
+                        <input readonly type="date" @bind="_selectedSalesDate" @bind:after="LoadSalesData"
+                               class="w-full text-slate-800 px-4 py-2 text-sm font-medium outline-none" />
+                        <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                            <i class="fas fa-calendar text-xs"></i>
+                        </div>
+                    </div>
+                   
+                </div>
+            </div>
+            <div class="h-[50vh] overflow-y-auto  ">
+                <GenericTable TItem="SaleModels"
+                              Items="FilteredSalesList"
+                              TableTitle="Today's Transactions"
+                              TotalCount="DailySalesList.Count"
+                              customCss="rounded-br-[15px] rounded-bl-[15px]"
+                              ShowSelection="false"
+                              PageSize="10">
+                    <TableHeader>
+                        <th class=" px-4 py-3 text-left text-xs uppercase tracking-wider">
+                            Today's Transactions
+                        </th>
+                    </TableHeader>
+                    <RowTemplate Context="row">
+                        <td class="p-0 border-b-4 border-slate-200 bg-white hover:bg-slate-50 transition-colors">
+                            <div class="flex flex-col gap-3 p-4">
+                                @* 1. Header: Invoice & Status *@
+                                <div class="flex justify-between items-center">
+                                    <div class="flex flex-col">
+                                        <span class="font-black text-slate-800 uppercase text-sm">@row.Item.InvoiceNumber</span>
+                                        <div class="flex items-center gap-2">
+                                            @* Time Display *@
+                                            <span class="text-[10px] text-slate-500 font-bold">
+                                                <i class="far fa-clock mr-1"></i> @row.Item.TransactionDate.ToString("hh:mm tt")
+                                            </span>
+
+                                            @* Conditional Debtor Name *@
+                                            @if (row.Item.IsCredit)
+                                            {
+                                                <span class="flex items-center gap-1 text-[10px] text-orange-600 font-black uppercase bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100">
+                                                    <i class="fas fa-user text-[8px]"></i> @row.Item.CustomerName
+                                                </span>
+                                            }
+                                        </div>
+                                    </div>
+
+                                    <div class="flex flex-col items-end gap-1">
+                                        @if (row.Item.IsVoided)
+                                        {
+                                            <span class="px-2 py-1 rounded text-[10px] font-black bg-red-100 text-red-600">
+                                                VOID
+                                            </span>
+                                        }
+                                        else if (row.Item.IsCredit)
+                                        {
+                                            @* Show UTANG/CREDIT badge *@
+                                            <div class="flex flex-col items-end">
+                                                <span class="px-2 py-1 rounded text-[10px] font-black bg-orange-100 text-orange-600 uppercase">
+                                                    CREDIT (UTANG)
+                                                </span>
+                                                @if (row.Item.CreditBalance > 0)
+                                                {
+                                                    <span class="text-[9px] font-bold text-orange-400">
+                                                        Bal: ₱@row.Item.CreditBalance.ToString("N2")
+                                                    </span>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="px-2 py-1 rounded text-[10px] font-black bg-green-100 text-green-600">
+                                                PAID
+                                            </span>
+                                        }
+
+                                        @if (row.Item.IsVoided && !string.IsNullOrEmpty(row.Item.VoidReason))
+                                        {
+                                            <span class="text-[9px] text-red-400 italic">Reason: @row.Item.VoidReason</span>
+                                        }
+                                    </div>
+                                </div>
+
+                                @foreach (var detail in row.Item.Items)
+                                {
+                                    <div class="flex justify-between items-center text-[11px] py-1 border-b border-slate-50 last:border-0">
+                                        <div class="flex items-center gap-2">
+                       
+                                            @if (!row.Item.IsVoided && row.Item.Items.Count > 1)
+                                            {
+                                                <button @onclick="() => SelectItemForVoid(row.Item, detail)"
+                                                        @onclick:stopPropagation="true"
+                                                        class="text-red-500 hover:text-red-700 p-1 transition-colors"
+                                                        title="Remove Item">
+                                                    <i class="fas fa-trash-alt"></i>
+                                                </button>
+                                            }
+                                            else if (!row.Item.IsVoided && row.Item.Items.Count == 1)
+                                            {
+                                                @* Optional: Show a small info icon or just padding to keep alignment *@
+                                                <div class="w-6"></div>
+                                            }
+
+                                            <span class="text-slate-600 font-medium">
+                                                <span class="font-black text-slate-400">@detail.Quantity x</span> @detail.ProductName
+                                            </span>
+                                        </div>
+                                        <span class="font-mono text-slate-500 font-bold">
+                                            ₱@((detail.Quantity * (double)detail.UnitPrice).ToString("N2"))
+                                        </span>
+                                    </div>
+                                }
+                                @* 3. Transaction Summary & Actions *@
+                                <div class="flex justify-between items-center bg-slate-50 p-2 rounded-lg mt-1">
+                                    <div class="flex flex-col">
+                                        <div class="text-[10px] font-bold text-slate-500 uppercase">Total Amount</div>
+                                        <div class="font-black text-slate-800 text-sm">₱ @row.Item.TotalAmount.ToString("N2")</div>
+                                        @if (row.Item.IsCredit && row.Item.AmountPaid > 0)
+                                        {
+                                            <div class="text-[9px] text-green-600 font-bold">
+                                                <i class="fas fa-check-circle"></i> Paid: ₱ @row.Item.AmountPaid.ToString("N2")
+                                            </div>
+                                        }
+                                    </div>
+    
+                                    @if (!row.Item.IsVoided)
+                                    {
+                                        <button @onclick="() => SelectSaleForVoid(row.Item)"
+                                                class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-[10px] font-black uppercase rounded shadow-sm transition-transform active:scale-95">
+                                            Void Sale
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-[9px] font-black text-red-400 uppercase italic">Transaction Cancelled</span>
+                                    }
+                                </div>
+                            </div>
+                        </td>
+                      
+                    </RowTemplate>
+                </GenericTable>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+
+@if (_isVoidConfirmVisible)
+{
+    <Modal IsVisible="_isVoidConfirmVisible"
+           Title="Void Transaction"
+           OnClose="() => _isVoidConfirmVisible = false">
+        <ChildContent>
+            <div class="p-6 space-y-4">
+                @* 1. High-Level Danger Alert *@
+                <div class="bg-red-50 p-3 rounded border border-red-100 flex items-start gap-3">
+                    <i class="fas fa-exclamation-circle text-red-600 mt-1"></i>
+                    <div>
+                        <p class="text-xs text-red-600 font-black uppercase">Critical Action</p>
+                        <p class="text-[11px] text-red-500">
+                            You are about to void <b>@_saleToVoid?.InvoiceNumber</b>. This will cancel the entire transaction and restock all items.
+                        </p>
+                    </div>
+                </div>
+                
+                @* 2. Reason Input *@
+                <div class="space-y-1">
+                    <label class="text-[10px] font-black text-slate-500 uppercase">Reason for Cancellation</label>
+                    <textarea @bind="_voidReason"
+                              class="w-full p-2 text-slate-800 border-2 border-slate-200 rounded text-sm bg-white focus:border-red-500 focus:ring-0 outline-none transition-colors"
+                              placeholder="Required: e.g. Customer change mind, Wrong payment method..."></textarea>
+                </div>
+
+                @* 3. Items to be Restocked (NEW LIST SECTION) *@
+                <div class="space-y-1">
+                    <label class="text-[10px] font-black text-slate-500 uppercase">Items to Restock</label>
+                    <div class="max-h-[120px] overflow-y-auto rounded border border-slate-200 bg-slate-50">
+                        @if (_saleToVoid?.Items != null)
+                        {
+                            @foreach (var item in _saleToVoid.Items)
+                            {
+                                <div class="flex justify-between items-center p-2 border-b border-slate-200 last:border-0 text-[11px]">
+                                    <span class="text-slate-700">
+                                        <span class="font-black text-slate-400">@item.Quantity x</span> @item.ProductName
+                                    </span>
+                                    <span class="font-mono text-slate-500">₱@((item.Quantity * (double)item.UnitPrice).ToString("N2"))</span>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                @* 4. System Impact Summary *@
+                <div class="bg-slate-800 p-3 rounded border border-slate-700">
+                    <div class="flex justify-between items-center text-[10px]">
+                        <span class="text-slate-400 font-bold uppercase">Total Refund Amount</span>
+                        <span class="text-red-400 font-black font-mono text-xs">₱ @_saleToVoid?.TotalAmount.ToString("N2")</span>
+                    </div>
+                </div>
+            </div>
+        </ChildContent>
+        <CustomFooter>
+            <div class="flex w-full items-center justify-end gap-3 ">
+                <button @onclick="() => _isVoidConfirmVisible = false"
+                        class="px-6 py-2.5 text-xs font-bold text-slate-400 hover:text-white transition-colors">
+                    Close
+                </button>
+        
+                <button @onclick="ConfirmVoid"
+                        class="px-8 py-2.5 bg-red-600 hover:bg-red-700 text-white text-[11px] font-black rounded uppercase shadow-lg active:scale-95 transition-all">
+                    Confirm Full Void
+                </button>
+            </div>
+        </CustomFooter>
+    </Modal>
+}
+
+@if (_isItemVoidModalVisible && _itemToVoid != null)
+{
+    <Modal IsVisible="_isItemVoidModalVisible" Title="Confirm Item Removal" OnClose="() => _isItemVoidModalVisible = false">
+        <ChildContent>
+            <div class="p-6 space-y-4">
+                @* Alert Banner *@
+                <div class="bg-amber-50 border-l-4 border-amber-400 p-3 rounded">
+                    <div class="flex items-center gap-2 mb-1">
+                        <i class="fas fa-exclamation-triangle text-red-600 text-xs"></i>
+                        <span class="text-[10px] font-black text-red-600 uppercase">Warning: System Reversal</span>
+                    </div>
+                    <p class="text-[11px] text-red-500 leading-tight">
+                        Removing an item will permanently update the <b>Inventory</b> and <b>Invoice Total</b>. Ensure the physical item is returned to the shelf.
+                    </p>
+                </div>
+
+                @* Item Detail Display *@
+                <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase">Product to Remove</p>
+                            <p class="text-sm font-black text-slate-800">@_itemToVoid.ProductName</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase">Quantity</p>
+                            <p class="text-sm font-black text-slate-800">@_itemToVoid.Quantity</p>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4 p-3 bg-white border border-red-100 rounded flex items-center justify-between">
+                        <div>
+                            <p class="text-[10px] font-bold text-red-400 uppercase">Quantity to Remove</p>
+                            <input type="number"
+                                   @bind="_quantityToRemove"
+                                   @bind:event="oninput"
+                                   min="1"
+                                   max="@_itemToVoid.Quantity"
+                                   onkeypress="return (event.charCode != 8 && event.charCode == 0 || (event.charCode >= 48 && event.charCode <= 57))"
+                                   class="w-20 text-lg font-black text-red-600 border-b-2 border-red-600 focus:outline-none" />
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase">Remaining</p>
+                            <p class="text-sm font-bold">@(_itemToVoid.Quantity - _quantityToRemove) pcs</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-2">
+                    <div class="flex gap-2 items-start">
+                        <div class="h-4 w-4 rounded-full bg-slate-200 flex items-center justify-center shrink-0">
+                            <span class="text-[9px] font-bold">1</span>
+                        </div>
+                        <p class="text-[10px] text-slate-500 italic">Inventory for this product will increase by <b>@_itemToVoid.Quantity</b>.</p>
+                    </div>
+                    <div class="flex gap-2 items-start">
+                        <div class="h-4 w-4 rounded-full bg-slate-200 flex items-center justify-center shrink-0">
+                            <span class="text-[9px] font-bold">2</span>
+                        </div>
+                        <p class="text-[10px] text-slate-500 italic">The transaction total will be recalculated automatically.</p>
+                    </div>
+                </div>
+            </div>
+        </ChildContent>
+        <CustomFooter>
+            <div class="flex w-full items-center justify-end gap-2">
+           
+                <button @onclick="() => _isItemVoidModalVisible = false"
+                        class="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white transition-colors">
+                    Cancel
+                </button>
+
+                <button @onclick="ConfirmItemVoid"
+                        class="w-auto px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white text-[11px] font-black rounded uppercase shadow-lg active:scale-95 transition-all">
+                    Confirm Removal
+                </button>
+            </div>
+        </CustomFooter>
+    </Modal>
+}
+
+@if (_isHoldInputVisible)
+{
+    <Modal IsVisible="_isHoldInputVisible" Title="Hold Current Transaction" OnClose="() => _isHoldInputVisible = false">
+        <ChildContent>
+            <div class="p-6 space-y-4 bg-white">
+                <div class="flex items-center gap-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                    <i class="fas fa-pause-circle text-amber-600 text-xl"></i>
+                    <p class="text-xs text-amber-800 font-medium">This will clear your current cart and save it for later retrieval.</p>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-[2px]">Items Overview (@CartItems.Count)</label>
+                    <div class="max-h-40 overflow-y-auto border border-slate-100 rounded-lg bg-slate-50 p-3 space-y-2 shadow-inner">
+                        @foreach (var item in CartItems)
+                        {
+                            <div class="flex justify-between items-center text-[11px] border-b border-slate-200 pb-2 last:border-0">
+                                <div class="flex flex-col">
+                                    <span class="font-bold text-slate-700">@item.ProductName</span>
+                                    <span class="text-slate-500">Qty: @item.Quantity</span>
+                                </div>
+                                <span class="font-black text-amber-600">₱@(((decimal)item.Quantity * item.UnitPrice).ToString("N2"))</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+          
+                @* 3. Input Field *@
+                <div class="space-y-2 pt-2">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-[2px]">Reference Name (Required)</label>
+                    <input type="text" @bind="_holdReference"
+                           @bind:event="oninput"
+                           class="w-full bg-white border-2 border-slate-200 p-4 text-slate-800 rounded-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition-all shadow-sm"
+                           placeholder="e.g., Table 4, Customer John..." />
+                </div>
+            </div>
+        </ChildContent>
+        <CustomFooter>
+            <div class="flex w-full items-center justify-end gap-2">
+           
+                <button @onclick="() => _isHoldInputVisible = false"
+                        class="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white transition-colors">
+                    Cancel
+                </button>
+
+                <button @onclick="ConfirmHold"
+                        disabled="@string.IsNullOrEmpty(_holdReference)"
+                        class="w-auto px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white text-[11px] font-black rounded uppercase shadow-lg active:scale-95 transition-all
+                    disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-green-600 disabled:active:scale-100">
+                    Confirm Hold
+                </button>
+            </div>
+           
+        </CustomFooter>
+    </Modal>
+}
+
+@if (_isHeldListVisible)
+{
+    <Modal ShowFooter="false" IsVisible="_isHeldListVisible" Title="Parked Transactions" customCss="!rounded-br-[15px] !rounded-bl-[15px]" OnClose="() => _isHeldListVisible = false">
+        <ChildContent>
+            <div class="h-[75vh] md:h-[60vh] overflow-y-auto bg-slate-50  flex flex-col">
+                
+                @if (HeldOrdersList == null || !HeldOrdersList.Any())
+                {
+                    <div class="flex-1 bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-400">
+                        <div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                            <i class="fas fa-inbox text-2xl"></i>
+                        </div>
+                        <p class="text-[11px] font-black uppercase tracking-[2px]">No parked orders</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="p-3 space-y-3  ">
+                        @* Reduced padding for mobile screens *@
+                        @foreach (var held in HeldOrdersList)
+                        {
+                            <div class="bg-white border border-slate-200 rounded-2xl shadow-lg overflow-hidden active:scale-[0.98] transition-transform">
+                                
+                                @* Top Section: Info & Delete *@
+                                <div class="p-4 border-b border-dashed border-slate-100">
+                                    <div class="flex justify-between items-start">
+                                        <div class="space-y-1">
+                                            <h4 class="text-xs font-black text-slate-800 uppercase tracking-tight truncate max-w-[180px]">
+                                                @held.ReferenceName
+                                            </h4>
+                                            <div class="flex items-center gap-3 text-[10px] font-bold text-slate-400 uppercase">
+                                                <span class="flex items-center gap-1">
+                                                    <i class="far fa-clock text-amber-500"></i> @held.HeldAt.ToString("hh:mm tt")
+                                                </span>
+                                                <span class="flex items-center gap-1">
+                                                    <i class="fas fa-shopping-basket text-amber-500"></i> @held.Items.Count
+                                                </span>
+                                            </div>
+                                        </div>
+                                        
+                                        @* Larger Delete Touch Target *@
+                                        <button @onclick="() => DeleteHeldOrder(held.Id)"
+                                                class="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 active:bg-red-50 rounded-full transition-all">
+                                            <i class="fas fa-trash-alt text-sm"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                @* Middle Section: Content Preview (Scrollable Row) *@
+                                <div class="bg-slate-50/50 p-3">
+                                    <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                                        @foreach (var item in held.Items)
+                                        {
+                                            <div class="flex-shrink-0 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-2">
+                                                <span class="text-[10px] font-bold text-slate-600">@item.ProductName</span>
+                                                <span class="text-[10px] font-black text-amber-600">x @item.Quantity</span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+
+                                @* Bottom Section: Full-Width Action *@
+                                <button @onclick="() => ResumeHeldOrder(held)"
+                                        class="w-full py-4 bg-orange-600 hover:bg-amber-500 text-white hover:text-white text-[11px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+                                    <i class="fas fa-external-link-alt"></i>
+                                    Resume This Order
+                                </button>
+
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </ChildContent>
+    </Modal>
+}
+
+
+@code {
+
+    #region 1. Initialization
+    // --- [ 1. SERVICES & REFERENCES ] ---
+    private ElementReference _mainContainer;
+    private int _selectedProductIndex = 0;
+
+    // --- [ 2. TRANSACTION STATE ] ---
+    private List<CartModels> CartItems = new();
+    private bool isLoading = true;
+    private bool isTransactionActive = false;
+    private string transactionNo = "---";
+    private string transactionDate = "---";
+    private string _selectedPaymentType = "Cash";
+
+    // --- [ 3. FINANCIAL TOTALS ] ---
+    private decimal SubTotal = 0;
+    private decimal VatAmount = 0;
+    private decimal NetTotal = 0;
+
+    // --- [ 3. DISCOUNT  ] ---
+    private CartModels? _selectedRowItem;
+    private bool _isDiscountModalVisible = false;
+    private string _discountType = "Percent"; // Percent or Fixed
+    private decimal _discountValue = 0;
+    private decimal TotalDiscount = 0;
+    private string? _discountValueString
+    {
+        get => _discountValue == 0 ? "" : _discountValue.ToString();
+        set
+        {
+            if (decimal.TryParse(value, out var result))
+            {
+                _discountValue = result;
+            }
+            else
+            {
+                _discountValue = 0;
+            }
+        }
+    }
+    #endregion
+    #region 3. Hold Transaction
+    // Hold Transaction
+    private bool _isHoldInputVisible = false;
+    private bool _isHeldListVisible = false;
+    private string _holdReference = "";
+    private List<HeldTransactionModel> HeldOrdersList = new();
+    private int HeldOrdersCount => HeldOrdersList.Count;
+    private async Task OpenHoldModal()
+    {
+        if (CartItems != null && CartItems.Any())
+        {
+            _holdReference = ""; // Reset reference name
+            _isHoldInputVisible = true;
+        }
+        // If the cart is empty, show the list of already parked orders
+        else
+        {
+            HeldOrdersList = await heldService.GetAllHeldAsync();
+            _isHeldListVisible = true;
+        }
+    }
+    // Logic to Save
+    private async Task ConfirmHold()
+    {
+        if (string.IsNullOrEmpty(_holdReference)) return;
+
+        var success = await heldService.HoldCartAsync(_holdReference, CartItems);
+        if (success)
+        {
+            await cartService.ClearAsync();
+            _isHoldInputVisible = false;
+            HeldOrdersList = await heldService.GetAllHeldAsync();
+            StateHasChanged();
+        }
+    }
+
+    // Logic to Resume
+    private async Task ResumeHeldOrder(HeldTransactionModel held)
+    {
+        if (!isTransactionActive || string.IsNullOrEmpty(transactionNo))
+        {
+            await StartNewTransaction();
+        }
+
+        if (CartItems != null && CartItems.Any())
+        {
+            Alert.Warning("Please clear your current cart before resuming an order.");
+            return;
+        }
+
+        foreach (var heldItem in held.Items)
+        {
+            var cartItem = new CartModels
+            {
+                ProductId = heldItem.ProductId,
+                TransactionNo = transactionNo,
+                ProductName = heldItem.ProductName,
+                Barcode = heldItem.Barcode,
+                Pcode = heldItem.Pcode,
+                UnitPrice = heldItem.UnitPrice,
+                Quantity = heldItem.Quantity,
+                DiscountValue = 0,
+                DiscountType = "Percent"
+            };
+
+            await cartService.AddItemAsync(cartItem);
+        }
+
+        await heldService.RemoveHeldAsync(held.Id);
+
+        _isHeldListVisible = false;
+        HeldOrdersList = await heldService.GetAllHeldAsync();
+
+        // 5. Very Important: Manually load the cart data to refresh the screen
+        await LoadCartData();
+
+        StateHasChanged();
+        Alert.Success($"Transaction '{held.ReferenceName}' resumed.");
+    }
+    private async Task DeleteHeldOrder(int id)
+    {
+        await heldService.RemoveHeldAsync(id);
+        HeldOrdersList = await heldService.GetAllHeldAsync();
+
+        StateHasChanged();
+        Alert.Notify("Held transaction removed.");
+    }
+    #endregion
+    #region 4. SALES VOID LOGIC
+    // Daily Sales
+    private int _quantityValue = 1;
+    private int _quantityToRemove
+    {
+        get => _quantityValue;
+        set
+        {
+            if (value < 1) _quantityValue = 1;
+            else if (value > _itemToVoid?.Quantity) _quantityValue = _itemToVoid.Quantity;
+            else _quantityValue = value;
+        }
+    }
+
+    private string _salesSearchQuery = "";
+    private List<SaleModels> DailySalesList = new();
+    private DateTime _selectedSalesDate = DateTime.Today;
+    private SaleModels? _saleToVoid;
+    private SaleModels? _parentSale;
+    private SaleDetailModels? _itemToVoid;
+    private bool _isVoidConfirmVisible = false;
+    private bool _isItemVoidModalVisible = false;
+    private string _voidReason = "";
+
+    private List<SaleModels> FilteredSalesList
+    {
+        get
+        {
+            var query = DailySalesList.AsEnumerable();
+            var currentCashier = Gatekeeper.ActiveStaff?.Name;
+            if (!string.IsNullOrEmpty(currentCashier))
+            {
+                query = query.Where(s => s.CashierName == currentCashier);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_salesSearchQuery))
+            {
+                query = query.Where(s =>
+                    s.InvoiceNumber.Contains(_salesSearchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    s.TransactionDate.ToString("hh:mm tt").Contains(_salesSearchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    s.CustomerName.Contains(_salesSearchQuery, StringComparison.OrdinalIgnoreCase)
+                );
+            }
+
+            return query.OrderByDescending(s => s.TransactionDate).ToList();
+        }
+    }
+
+    private void SelectSaleForVoid(SaleModels sale)
+    {
+        _saleToVoid = sale;
+        _voidReason = "";
+        _isVoidConfirmVisible = true;
+    }
+    private void SelectItemForVoid(SaleModels sale, SaleDetailModels detail)
+    {
+        _parentSale = sale;
+        _itemToVoid = detail;
+        _isItemVoidModalVisible = true;
+    }
+
+    private async Task ConfirmItemVoid()
+    {
+        if (_parentSale == null || _itemToVoid == null) return;
+        if (_quantityToRemove < 1)
+        {
+            _quantityToRemove = 1;
+            Alert.Error("Quantity must be at least 1.");
+            return;
+        }
+
+        if (_quantityToRemove > _itemToVoid.Quantity)
+        {
+            Alert.Error($"Cannot remove more than the purchased quantity ({_itemToVoid.Quantity}).");
+            return;
+        }
+        var result = await saleService.VoidSingleItemAsync(_parentSale.Id, _itemToVoid, _quantityToRemove);
+
+        if (result)
+        {
+
+            if (_parentSale.Items.Count <= 1 && _quantityToRemove == _itemToVoid.Quantity)
+            {
+                await saleService.VoidTransactionAsync(_parentSale, "All items removed", true);
+            }
+
+            // Refresh the list
+
+            _isItemVoidModalVisible = false;
+            Alert.Success($"Successfully returned {_quantityToRemove} pcs of {_itemToVoid.ProductName}."); await productService.LoadProductsAsync();
+            await LoadSalesData();
+            StateHasChanged();
+        }
+        else
+        {
+            Alert.Error("Failed to remove item.");
+        }
+    }
+    private async Task ConfirmVoid()
+    {
+        if (_saleToVoid == null) return;
+        if (string.IsNullOrWhiteSpace(_voidReason))
+        {
+            Alert.Warning("Please provide a reason for cancellation.");
+            return;
+        }
+
+        _saleToVoid.IsVoided = true;
+        _saleToVoid.VoidReason = _voidReason;
+        _saleToVoid.VoidDate = DateTime.Now;
+        _saleToVoid.VoidedBy = "Admin";
+
+        bool success = await saleService.VoidTransactionAsync(_saleToVoid, _voidReason, true);
+
+        if (success)
+        {
+            _isVoidConfirmVisible = false;
+            await LoadSalesData();
+            await productService.LoadProductsAsync();
+
+            StateHasChanged();
+            Alert.Success($"Invoice {_saleToVoid.InvoiceNumber} has been voided.");
+        }
+    }
+    #endregion
+    #region 5. CREDIT CUSTOMER PICKER
+    private CustomerModels _selectedCreditCustomer;
+    private bool _isCustomerPickerVisible = false;
+    private string _customerSearchQuery = "";
+    private string _newCustomerName = "";
+    private string _newCustomerPhone = "";
+
+    private IEnumerable<CustomerModels> FilteredCustomers =>
+        customerService.CustomerList.Where(x => x.Name.Contains(_customerSearchQuery, StringComparison.OrdinalIgnoreCase));
+
+    private void HandleCustomerSelected(int? val)
+    {
+        if (val == null || val == 0)
+        {
+            _selectedCreditCustomer = null;
+            return;
+        }
+
+        int customerId = Convert.ToInt32(val);
+        _selectedCreditCustomer = customerService.CustomerList
+            .FirstOrDefault(c => c.Id == customerId);
+    }
+    private void ConfirmSelection()
+    {
+        if (_selectedCreditCustomer != null)
+        {
+            _isCustomerPickerVisible = false;
+            Alert.Notify($"Selected: {_selectedCreditCustomer.Name}");
+        }
+    }
+
+
+    private async Task RegisterAndSelectCustomer()
+    {
+        var newCust = new CustomerModels
+        {
+            Name = _newCustomerName,
+            ContactNumber = _newCustomerPhone,
+            CreditLimit = 5000 // Default limit
+        };
+
+        // Save to DB via your Customer Service/Repository
+        bool saved = await customerService.AddCustomer(newCust);
+        if (saved)
+        {
+            _selectedCreditCustomer = newCust;
+            _isCustomerPickerVisible = false;
+            _newCustomerName = ""; _newCustomerPhone = ""; // Reset
+            Alert.Success("Customer Registered!");
+        }
+    }
+    #endregion
+
+    // --- [ 4. MODAL & UI STATES ] ---
+    private bool _isSearchModalVisible = false;
+    private bool _isSettleModalVisible = false;
+    private bool _isSalesModalVisible = false;
+    private string _productSearchTerm = "";
+    private string _barcodeInput = "";
+    private decimal _amountTendered = 0;
+    private POSActions? _barcodeScanner;
+    // Computed Property for Settle Logic
+    private decimal ChangeDue => _amountTendered - NetTotal;
+    private void SetPaymentMethod(string method)
+    {
+        _selectedPaymentType = method;
+
+        if (method == "Credit")
+        {
+            _amountTendered = 0; // Default to 0, user can input partial pay
+            _isCustomerPickerVisible = true; // Trigger picker automatically
+        }
+        else if (method != "Cash")
+        {
+            _amountTendered = NetTotal;
+        }
+    }
+    // --- [ 5. DATA FETCHING & FILTERING ] ---
+    private List<ProductModels> MasterProducts = new();
+    private IEnumerable<ProductModels> FilteredProducts =>
+        string.IsNullOrWhiteSpace(_productSearchTerm)
+            ? MasterProducts
+            : MasterProducts.Where(p =>
+                p.Name.Contains(_productSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                p.Barcode.Contains(_productSearchTerm) ||
+                p.Pcode.Contains(_productSearchTerm));
+
+    // --- [ 6. LIFECYCLE METHODS ] ---
+    protected override async Task OnInitializedAsync()
+    {
+        cartService.OnCartChanged += HandleCartChanged;
+        await productService.LoadProductsAsync();
+        HeldOrdersList = await heldService.GetAllHeldAsync();
+        if (!isTransactionActive)
+        {
+            await cartService.ClearAsync();
+        }
+        await customerService.GetAllCustomers();
+        await LoadCartData();
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            //await _mainContainer.FocusAsync();
+        }
+
+
+    }
+
+    public void Dispose()
+    {
+        cartService.OnCartChanged -= HandleCartChanged;
+    }
+    #region 6.1 Cleanup on Transaction End
+    // --- [ 7. CORE TRANSACTION LOGIC ] ---
+    // --- Discount Calculation ---
+    private void SelectItem(CartModels item)
+    {
+        if (_selectedRowItem?.Id == item.Id)
+            _selectedRowItem = null;
+        else
+            _selectedRowItem = item;
+        StateHasChanged();
+    }
+    private decimal CalculateDiscountAmount()
+    {
+        if (_discountType == "Percent")
+        {
+            return SubTotal * (_discountValue / 100);
+        }
+        return _discountValue;
+    }
+
+    private async Task OpenDiscountModal()
+    {
+        if (_selectedRowItem == null && CartItems.Any())
+        {
+            _selectedRowItem = CartItems.Last();
+        }
+
+        if (_selectedRowItem == null)
+        {
+            Alert.Warning("Please select an item to discount!");
+            return;
+        }
+
+        // Load selected item data into modal state
+        _discountType = _selectedRowItem.DiscountType ?? "Percent";
+        _discountValue = _selectedRowItem.DiscountValue;
+        _isDiscountModalVisible = true;
+    }
+
+    private async Task ApplyDiscount()
+    {
+        if (_selectedRowItem == null) return;
+
+        _selectedRowItem.DiscountType = _discountType;
+        _selectedRowItem.DiscountValue = _discountValue;
+
+        await cartService.UpdateItemAsync(_selectedRowItem);
+
+        _isDiscountModalVisible = false;
+        _discountValue = 0;
+
+        await LoadCartData();
+        Alert.Success("Item discount updated.");
+    }
+    private async Task RefocusAsync()
+    {
+        StateHasChanged();
+        await Task.Delay(10);
+    
+        if (_barcodeScanner != null)
+        {
+            await _barcodeScanner.ReFocus();
+        }
+    }
+    private async Task StartNewTransaction()
+    {
+        
+        await cartService.ClearAsync();
+        await hardwareServices.VibrateFeedback();
+        transactionNo = await saleService.GenerateInvoiceNumberAsync();
+        transactionDate = DateTime.Now.ToString("MMM d, yyyy");
+        isTransactionActive = true;
+        StateHasChanged();
+        await FocusScanner();
+        
+    }
+
+    private async Task LoadCartData()
+    {
+        isLoading = true;
+    
+        // Only fetch items if we actually have a transaction number assigned
+        if (transactionNo != "---")
+        {
+            CartItems = await cartService.GetItemsAsync();
+            SubTotal = await cartService.GetSubTotalAsync();
+            VatAmount = await cartService.GetVatAmountAsync();
+            NetTotal = await cartService.GetNetTotalAsync();
+        }
+        else
+        {
+            // Otherwise, keep the UI clean
+            CartItems = new();
+            SubTotal = 0;
+            VatAmount = 0;
+            NetTotal = 0;
+        }
+    
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async void HandleCartChanged()
+    {
+        await InvokeAsync(LoadCartData);
+    }
+    private string ProductSearchTerm
+    {
+        get => _productSearchTerm;
+        set
+        {
+            if (_productSearchTerm != value)
+            {
+                _productSearchTerm = value;
+                _selectedProductIndex = 0;
+            }
+        }
+    }
+
+    // --- [ 8. INPUT & KEYBOARD HANDLERS ] ---
+    private async Task HandleSearchKeyDown(KeyboardEventArgs e)
+    {
+        var products = FilteredProducts.ToList();
+        if (!products.Any()) return;
+
+        if (e.Key == "ArrowDown")
+        {
+            if (_selectedProductIndex < products.Count - 1)
+                _selectedProductIndex++;
+        }
+        else if (e.Key == "ArrowUp")
+        {
+            if (_selectedProductIndex > 0)
+                _selectedProductIndex--;
+        }
+        else if (e.Key == "Enter")
+        {
+            var selectedProduct = products[_selectedProductIndex];
+            await AddToCartFromSearch(selectedProduct);
+        
+            // _isSearchModalVisible = false;
+        }
+    }
+    private async Task HandleGlobalKeyDown(KeyboardEventArgs e)
+    {
+        if (_isSearchModalVisible || _isSettleModalVisible)
+        {
+            if (e.Key == "Escape") await CloseAllModals();
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case "F1": await StartNewTransaction(); break;
+            case "F2": await OpenProductSearch(); break;
+            case "F3": if (isTransactionActive && CartItems.Count > 0) await OpenDiscountModal(); break;
+            case "F4": if (isTransactionActive && CartItems.Count > 0) OpenSettleModal(); break;
+            case "F5": await cartService.ClearAsync(); break;
+            case "F6": await OpenSalesModal(); break;
+            case "F8": await FocusScanner(); break;
+            case "Escape": await CloseAllModals(); break;
+        }
+    }
+    private async Task HandleSettleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && ChangeDue >= 0 && NetTotal > 0)
+        {
+            await ConfirmPayment();
+        }
+    }
+    private async Task HandleBarcodeKeyUp(string code)
+    {
+        await ProcessBarcode(code);
+        _barcodeInput = "";
+        StateHasChanged();
+    }
+    private async Task FocusScanner()
+    {
+        if (isTransactionActive)
+        {
+            await (_barcodeScanner?.ReFocus() ?? Task.CompletedTask);
+        }
+    }
+    // Daily Sale
+    private async Task OpenSalesModal()
+    {
+        _isSalesModalVisible = true;
+        await LoadSalesData();
+
+    }
+    private async Task LoadSalesData()
+    {
+        DailySalesList = await saleService.GetDailySalesAsync(_selectedSalesDate);
+        StateHasChanged();
+    }
+    #endregion
+    #region 8.1 Sales Search & Filter
+    // --- [ 9. PRODUCT ACTIONS (Search/Scan/Cart) ] ---
+    private async Task ProcessBarcode(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code) || !isTransactionActive) return;
+
+        if (code.Contains("http") || code.Contains("www") || code.Contains("/") || code.Contains("?"))
+        {
+            await HandleInvalidFormat(code, "URL/QR Link detected. Please scan a product barcode.");
+            return;
+        }
+
+        if (Regex.IsMatch(code, @"^\d{8,14}$"))
+        {
+            await SearchProduct(code);
+        }
+        else if (code.Length < 8)
+        {
+            await SearchProduct(code);
+        }
+        else
+        {
+            await HandleInvalidFormat(code, "Invalid barcode format.");
+        }
+    }
+    private async Task HandleInvalidFormat(string code, string reason)
+    {
+        Alert.Error(reason);
+    
+        _barcodeInput = "";
+        await Task.Delay(2000);
+        await FocusScanner();
+    }
+    private async Task SearchProduct(string code)
+    {
+        var product = productService.ProductDisplayList
+                        .Select(x => x.Product)
+                        .FirstOrDefault(p => p.Barcode == code && p.IsActive);
+
+        if (product != null)
+        {
+            await AddToCartInternal(product, 1);
+            _barcodeInput = "";
+        }
+        else
+        {
+            await HandleInvalidBarcode(code);
+        }
+    }
+    private async Task HandleInvalidBarcode(string code)
+    {
+
+        Alert.Warning($"Barcode '{code}' not recognized.");
+
+        await Task.Delay(3000);
+
+        await FocusScanner();
+
+    }
+    private async Task AddToCartFromSearch(ProductModels product)
+    {
+        int qty = product.TempQty <= 0 ? 1 : product.TempQty;
+        await AddToCartInternal(product, qty);
+        product.TempQty = 1;
+    }
+    private async Task AddToCartInternal(ProductModels product, int qty)
+    {
+        var existingInCart = CartItems.FirstOrDefault(x => x.ProductId == product.Id);
+        int currentCartQty = existingInCart?.Quantity ?? 0;
+        int requestedTotal = currentCartQty + qty;
+
+        if (requestedTotal > (product.StockLevel + 0.0001))
+        {
+            double availableToAdd = Math.Max(0, product.StockLevel - currentCartQty);
+        
+            string unit = product.Unit.ToLower();
+            string formattedStock = product.StockLevel.ToString("0.##");
+            string formattedAvailable = availableToAdd.ToString("0.##");
+
+            if (availableToAdd <= 0)
+            {
+                Alert.Warning($"Limit reached! All {formattedStock} {unit} are already in your cart.");
+            }
+            else
+            {
+                Alert.Warning($"Insufficient stock! You can only add {formattedAvailable} more {unit}.");
+            }
+            return;
+        }
+
+        // 3. Update or Add
+        if (existingInCart != null)
+        {
+            existingInCart.Quantity += qty;
+            await cartService.UpdateItemAsync(existingInCart);
+            Alert.Success($"Updated {product.Name}: +{qty:0.##} {product.Unit} (Total: {existingInCart.Quantity:0.##})");
+        }
+        else
+        {
+            var cartItem = new CartModels
+            {
+                ProductId = product.Id,
+                TransactionNo = transactionNo,
+                ProductName = product.Name,
+                Barcode = product.Barcode,
+                Pcode = product.Pcode,
+                UnitPrice = product.SellingPrice,
+                Quantity = qty,
+                DiscountValue = 0,
+                DiscountType = "Percent"
+            };
+        
+            await cartService.AddItemAsync(cartItem);
+            Alert.Success($"Added {qty:0.##} {product.Unit} of {product.Name}");
+        }
+    }
+    #endregion
+    #region 9.1 Add to Cart from Product Search (with Quantity)
+    // --- [ 10. QUANTITY & REMOVAL ] ---
+    private async Task RemoveItem(int id) => await cartService.RemoveItemAsync(id);
+    private async Task DecreaseQty(CartModels item)
+    {
+        if (item.Quantity > 1)
+        {
+            await cartService.SetItemQuantityAsync(item.Id, item.Quantity - 1);
+        }
+        else
+        {
+            Alert.Warning("Minimum quantity is 1. Use the trash icon to remove.");
+        }
+    }
+    
+    private async Task IncreaseQty(CartModels item)
+    {
+        var productInStock = productService.ProductDisplayList
+         .FirstOrDefault(p => p.Product.Barcode == item.Barcode)?.Product;
+
+        if (productInStock != null && item.Quantity < productInStock.StockLevel)
+        {
+            await cartService.SetItemQuantityAsync(item.Id, item.Quantity + 1);
+        }
+        else
+        {
+            Alert.Error($"Limit reached. Only {productInStock?.StockLevel ?? 0} available.");
+        }
+    }
+    private async Task ManualUpdateQty(CartModels item, string? newValue)
+    {
+        if (int.TryParse(newValue, out int newQty) && newQty > 0)
+        {
+            // Find the product in inventory to check stock
+            var productInStock = productService.ProductDisplayList
+                .FirstOrDefault(p => p.Product.Barcode == item.Barcode)?.Product;
+
+            if (productInStock != null)
+            {
+                if (newQty > productInStock.StockLevel)
+                {
+                    Alert.Error($"Insufficient stock. Max available: {productInStock.StockLevel}");
+                    await cartService.SetItemQuantityAsync(item.Id, productInStock.StockLevel);
+                }
+                else
+                {
+                    await cartService.SetItemQuantityAsync(item.Id, newQty);
+                }
+            }
+        }
+        else
+        {
+            // If input is invalid (0, negative, or text), reload to revert the UI value
+            await LoadCartData();
+        }
+    }
+    #endregion
+    // --- [ 11. PAYMENT & MODAL CONTROL ] ---
+    #region 11.1 Payment Confirmation Logic
+    private async Task OpenProductSearch()
+    {
+        if (!isTransactionActive) return;
+        MasterProducts = productService.ProductDisplayList
+                        .Select(x => x.Product)
+                        .Where(p => p.IsActive && p.StockLevel > 0)
+                        .ToList();
+        _productSearchTerm = "";
+        _isSearchModalVisible = true;
+        StateHasChanged();
+        await Task.Delay(100);
+        
+    }
+    private void OpenSettleModal()
+    {
+        _amountTendered = 0;
+        _isSettleModalVisible = true;
+    }
+
+    private async Task ConfirmPayment()
+    {
+        // 1. Validation Logic
+        if (_selectedPaymentType == "Credit")
+        {
+            if (_selectedCreditCustomer == null)
+            {
+                Alert.Warning("Please select a customer for credit transactions.");
+                return;
+            }
+
+            decimal currentDebt = await CreditService.GetTotalCustomerDebtAsync(_selectedCreditCustomer.Id);
+            decimal newTotalDebt = currentDebt + (NetTotal - _amountTendered);
+        
+            if (newTotalDebt > _selectedCreditCustomer.CreditLimit)
+            {
+                Alert.Warning($"Transaction Denied! This pushes the customer over their ₱{_selectedCreditCustomer.CreditLimit:N2} limit.");
+                return;
+            }
+        }
+        else if (ChangeDue < 0)
+        {
+            Alert.Warning("Insufficient amount tendered!");
+            return;
+        }
+
+
+        // 2. Prepare the Sale Model
+        var newSale = new SaleModels
+        {
+            InvoiceNumber = transactionNo,
+            TotalAmount = SubTotal,
+            TaxAmount = VatAmount,
+            DiscountAmount = TotalDiscount,
+            PaymentType = _selectedPaymentType,
+        
+            AmountPaid = _amountTendered,
+        
+            // Calculate remaining debt for credit sales
+            CreditBalance = _selectedPaymentType == "Credit" ? (NetTotal - _amountTendered) : 0,
+            PaymentStatus = _selectedPaymentType == "Credit" ? "Credit" : "Paid",
+        
+            CustomerId = _selectedCreditCustomer?.Id,
+            CustomerName = _selectedCreditCustomer?.Name ?? "Walk-in",
+        
+            CashierName = Gatekeeper.ActiveStaff?.Name ?? "Unknown",
+            TransactionDate = DateTime.Now
+        };
+
+        bool success = await saleService.ProcessFinalSaleAsync(newSale, CartItems);
+
+        if (success)
+        {
+            await CompleteTransactionState();
+        }
+        else
+        {
+            Alert.Warning("Database Error: Could not save transaction.");
+        }
+    }
+
+    private async Task CompleteTransactionState()
+    {
+        _isSettleModalVisible = false;
+        _isCustomerPickerVisible = false;
+    
+        // Clear Cart & Transaction state
+        await cartService.ClearAsync();
+        isTransactionActive = false;
+        transactionNo = "---";
+    
+        // Reset Selection
+        _selectedCreditCustomer = null;
+        _amountTendered = 0;
+        _selectedPaymentType = "Cash";
+
+        Alert.Success("Transaction Completed!");
+    
+        // Refresh Data
+        await productService.LoadProductsAsync();
+        await LoadCartData();
+        await _mainContainer.FocusAsync();
+        StateHasChanged();
+    }
+    private async Task CloseAllModals()
+    {
+        _isSearchModalVisible = false;
+        _isSettleModalVisible = false;
+        await Task.Yield();
+        await _mainContainer.FocusAsync(); // Refocus the main div after closing
+    }
+    #endregion
+    private async Task HandleExit()
+    {
+        if (Gatekeeper.ActiveStaff?.Role == StaffRole.Cashier)
+        {
+            // Gatekeeper.LogoutStaff();
+            // await SecureStorage.Default.SetAsync("IsLoggedIn", "false");
+            // CustomAuthStateProvider.NotifyUserLogout();
+           // Nav.NavigateTo("/auth/access-portal");
+            Nav.NavigateTo("/customers/list");
+
+        }
+        else
+        {
+            Nav.NavigateTo("/");
+        }
+    }
+    private void QuickCash(decimal amount) => _amountTendered += amount;
+    private async Task HandleCameraScan(string code) { await ProcessBarcode(code); StateHasChanged(); }
+}

@@ -1,0 +1,34 @@
+﻿@using TCZPOS.Components.Pages.Extension
+
+<div class="border-t border-slate-400/50 bg-[#95a5a6] p-3 lg:p-4">
+    <div class="flex items-end justify-between lg:grid lg:grid-cols-2">
+        <div class="hidden lg:block">
+            <Clock />
+        </div>
+        
+        <div class="ml-auto w-full space-y-1 lg:max-w-xs">
+            @* Sub-total (Before VAT) *@
+            <div class="flex items-center justify-between text-[10px] font-bold uppercase text-slate-700">
+                <span>Sub-Total</span>
+                <span>₱ @SubTotal.ToString("N2")</span>
+            </div>
+            
+            @* VAT Amount (12%) *@
+            <div class="flex items-center justify-between text-[10px] font-bold uppercase text-slate-700">
+                <span>VAT (12%)</span>
+                <span>₱ @VatAmount.ToString("N2")</span>
+            </div>
+
+            @* Final Net Total *@
+            <div class="flex items-center justify-between border-t border-slate-900 pt-1">
+                <span class="text-xs font-black text-slate-900 uppercase">Net Total</span>
+                <span class="font-mono text-2xl font-black text-slate-900 lg:text-3xl">₱ @NetTotal.ToString("N2")</span>
+            </div>
+        </div>
+    </div>
+</div>
+@code {
+    [Parameter] public decimal SubTotal { get; set; }
+    [Parameter] public decimal VatAmount { get; set; }
+    [Parameter] public decimal NetTotal { get; set; }
+}

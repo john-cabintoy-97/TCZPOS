@@ -1,0 +1,43 @@
+﻿@using System.Timers
+@implements IDisposable
+
+<div class="flex items-center justify-between lg:flex-col lg:items-start lg:justify-end">
+    <div class="flex items-baseline gap-1 lg:gap-2">
+        <span class="text-2xl font-black tracking-tighter sm:text-3xl lg:text-5xl">@currentTime</span>
+        <span class="text-xs font-bold uppercase lg:text-xl">@ampm</span>
+    </div>
+    <p class="hidden text-[10px] font-bold tracking-widest text-slate-700 uppercase lg:block">@currentDate</p>
+</div>
+@code {
+    private string currentTime = "";
+    private string ampm = "";
+    private string currentDate = "";
+    private Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        UpdateClock();
+        
+        _timer = new Timer(1000);
+        _timer.Elapsed += (sender, e) => UpdateClock();
+        _timer.AutoReset = true;
+        _timer.Enabled = true;
+    }
+
+    private void UpdateClock()
+    {
+        var now = DateTime.Now;
+        
+        currentTime = now.ToString("hh:mm:ss");
+        ampm = now.ToString("tt");
+        currentDate = now.ToString("dddd, MMMM d, yyyy");
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        _timer?.Stop();
+        _timer?.Dispose();
+    }
+}

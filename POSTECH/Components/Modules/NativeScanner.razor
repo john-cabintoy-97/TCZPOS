@@ -1,0 +1,41 @@
+﻿@using TCZPOS.Xaml;
+@using Microsoft.Maui.Devices
+@inject HardwareServices Vibration
+
+@code {
+    private string ScanResult = "No result yet";
+
+    private async Task OpenScanner()
+    {
+        // 1. Check permissions
+        var status = await Permissions.RequestAsync<Permissions.Camera>();
+        if (status != PermissionStatus.Granted) return;
+
+        var app = Application.Current;
+        if (app?.Windows is not { Count: > 0 } windows) return;
+
+        var mainPage = windows[0].Page;
+        if (mainPage?.Navigation == null) return;
+
+        var scannerPage = new ScannerPage(Vibration);
+
+        // 2. Subscribe to the event
+        scannerPage.OnScanResult += (result) =>
+        {
+            ScanResult = result;
+
+            // --- VIBRATE HERE ---
+            TriggerSuccessVibration();
+
+            InvokeAsync(StateHasChanged);
+        };
+
+        await mainPage.Navigation.PushModalAsync(scannerPage);
+    }
+
+    private async void TriggerSuccessVibration()
+    {
+        await Vibration.VibrateFeedback();
+    }
+
+}

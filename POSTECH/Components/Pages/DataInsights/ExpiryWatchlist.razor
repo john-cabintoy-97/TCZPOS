@@ -1,0 +1,278 @@
+﻿@page "/reports/expiry"
+@using TCZPOS.Components.Models
+@using TCZPOS.Components.Services
+@using TCZPOS.Components.DTOs
+@inject ProductServices ProductService
+@inject AlertServices alertService
+
+<div class="flex h-screen w-full flex-col overflow-hidden font-sans text-white">
+    @* HEADER SECTION *@
+    <div class="flex flex-col bg-[#1A252F] p-4 shadow-xl lg:flex-row lg:items-center lg:justify-between">
+        <div>
+            <h2 class="text-xl font-bold uppercase tracking-tight">
+                Expiry <span class="text-orange-500">Watchlist</span>
+            </h2>
+            <p class="text-[10px] font-medium text-slate-400">Monitor products nearing expiration to reduce inventory loss.</p>
+        </div>
+        
+        <div class="flex items-center gap-4 mt-3 lg:mt-0">
+            @* SYNC UTILITY *@
+            <button @onclick="SyncInventory" disabled="@_isSyncing"
+                    class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2 shadow-lg disabled:opacity-50">
+                <i class="fas fa-sync-alt @(_isSyncing ? "fa-spin" : "")"></i>
+                @(_isSyncing ? "Syncing..." : "Refresh Inventory")
+            </button>
+
+            <div class="flex items-center gap-2 border-l border-slate-700 pl-4">
+                <span class="rounded border border-red-500/20 bg-red-500/10 px-2 py-1 text-xs text-red-500 uppercase font-black">
+                    Expiring Soon
+                </span>
+                <span class="text-3xl font-black text-red-500">@ProductService.ExpiringSoonCount</span>
+            </div>
+        </div>
+    </div>
+
+    @* MAIN CONTENT *@
+    <div class="flex-1 flex flex-col overflow-hidden bg-white text-slate-800">
+        @* SEARCH BAR *@
+        <div class="p-4 border-b bg-slate-50">
+            <div class="flex max-w-md overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-orange-500">
+                <input type="text" @bind="SearchTerm" @bind:event="oninput"
+                       class="w-full px-4 py-2 text-sm font-medium outline-none"
+                       placeholder="Search product name or Pcode..." />
+                <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                    <i class="fas fa-search text-xs"></i>
+                </div>
+            </div>
+        </div>
+
+        @* TABLE *@
+        <div class="flex-1 overflow-hidden">
+            <GenericTable TItem="ProductViewDTO"
+                          Items="PagedData"
+                          @ref="_tableRef"
+                          IsLoading="ProductService.IsLoading"
+                          TotalCount="FilteredWatchlist.Count()"
+                          PageSize="_pageSize"
+                          CurrentPage="@_currentPage"
+                          ShowSelection="true"
+                          RowClassFunc='(item) => _selectedId == item.Product.Id ? "bg-orange-50/5 border-l-4 border-orange-500 shadow-inner" : "hover:bg-slate-200"'
+                          OnBatchDelete="HandleClearExpired"
+                          OnPageChanged="HandlePageChanged"
+                          TableTitle="Inventory Expiry Logs">
+                <TableHeader>
+                    <th class="md:hidden px-4 py-3 text-left text-[10px] uppercase font-black text-slate-400">Product Details</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400">Product</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400">Category</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400">Expiry Date</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400 text-center">Status</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400 text-right">Stock</th>
+                    @* ADDED ACTION HEADER *@
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400 text-right">Actions</th>
+                </TableHeader>
+                <RowTemplate Context="row">
+                    @* MOBILE VIEW (Card Layout) *@
+                    <td colspan="6" class="md:hidden p-2 border-b-4 border-slate-100 bg-white">
+                        <div class="flex flex-col gap-3 p-3 rounded-2xl border border-slate-200 shadow-sm">
+                            <div class="flex justify-between items-center">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase @row.Item.Product.ExpiryStatusColor">
+                                    @GetExpiryLabel(row.Item.Product.DaysUntilExpiry)
+                                </span>
+                                <span class="text-[10px] font-mono font-bold text-slate-400 uppercase">
+                                    #@row.Item.Product.Pcode
+                                </span>
+                            </div>
+                            <div class="flex justify-between items-end">
+                                <div class="flex flex-col">
+                                    <h4 class="font-black text-slate-900 text-base leading-tight">@row.Item.Product.Name</h4>
+                                    <span class="text-[10px] font-medium text-slate-500 mt-1">@row.Item.CategoryName</span>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-lg font-black text-slate-800">
+                                        @row.Item.Product.StockLevel <span class="text-xs text-slate-400">@row.Item.Product.Unit</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="pt-3 border-t border-slate-100 flex justify-between items-center">
+                                <span class="text-[11px] font-bold text-slate-600">
+                                    Exp: @row.Item.Product.ExpiryDate?.ToString("MMM dd, yyyy")
+                                </span>
+                                <div class="flex gap-2">
+                                    <button @onclick="() => HandleReorder(row.Item)"
+                                            class="text-green-600 text-[10px] font-black uppercase tracking-widest p-2 bg-green-50 rounded-lg">
+                                        Reorder
+                                    </button>
+                                    <button @onclick="() => HandleDispose(row.Item)" class="text-red-600 text-[10px] font-black uppercase tracking-widest p-2 bg-red-50 rounded-lg">Dispose</button>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+
+                    @* DESKTOP VIEW *@
+                    <td class="hidden md:table-cell px-6 py-4">
+                        <div class="flex flex-col">
+                            <span class="text-xs font-black text-slate-700">@row.Item.Product.Name</span>
+                            <span class="text-[10px] text-slate-400 font-mono">@row.Item.Product.Pcode</span>
+                        </div>
+                    </td>
+                    <td class="hidden md:table-cell px-6 py-4 text-[11px] font-bold uppercase text-slate-500">@row.Item.CategoryName</td>
+                    <td class="hidden md:table-cell px-6 py-4 text-xs font-mono text-slate-600">@row.Item.Product.ExpiryDate?.ToString("MMM dd, yyyy")</td>
+                    <td class="hidden md:table-cell px-6 py-4 text-center">
+                        <span class="px-2 py-1 rounded text-[9px] font-black uppercase @row.Item.Product.ExpiryStatusColor">
+                            @GetExpiryLabel(row.Item.Product.DaysUntilExpiry)
+                        </span>
+                    </td>
+                    <td class="hidden md:table-cell px-6 py-4 text-right font-mono text-sm font-black text-slate-700">
+                        @row.Item.Product.StockLevel <span class="text-[10px] text-slate-400 uppercase">@row.Item.Product.Unit</span>
+                    </td>
+                    @* ADDED ACTION BUTTONS *@
+                    <td class="hidden md:table-cell px-6 py-4 text-right">
+                        <div class="flex justify-end gap-1">
+                            <button @onclick="() => HandleReorder(row.Item)" class="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Add to Procurement">
+                                <i class="fas fa-cart-plus"></i>
+                            </button>
+                            <button @onclick="() => HandleDispose(row.Item)" class="p-2 text-red-500 hover:bg-red-50 rounded-lg" title="Dispose Item">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
+                    </td>
+                </RowTemplate>
+            </GenericTable>
+        </div>
+    </div>
+</div>
+
+@code {
+    private GenericTable<ProductViewDTO> _tableRef;
+    private string SearchTerm { get; set; } = "";
+    private bool _isSyncing = false;
+    private int _currentPage = 1;
+    private int _pageSize = 10;
+    private int _selectedId = -1;
+    
+    private async Task HandleReorder(ProductViewDTO item)
+    {
+        // Logic to add this product to your Procurement/Shopping list
+        // This keeps your inventory flowing without leaving the page
+        alertService.Success($"{item.Product.Name} added to Procurement list.");
+    }
+
+    
+    private async Task HandleDispose(ProductViewDTO item)
+    {
+        bool confirmed = await alertService.ConfirmAsync(
+            $"Are you sure you want to dispose of {item.Product.Name}? This will remove it from stock.",
+            AlertTypeList.Warning, "Dispose", "Back");
+
+        if (confirmed)
+        {
+            // 1. Prepare the model for disposal
+            item.Product.StockLevel = 0;
+            item.Product.IsActive = false;
+
+            // 2. Call the service (Note the Tuple deconstruction)
+            var (success, message) = await ProductService.SaveProductAsync(item.Product);
+
+            if (success)
+            {
+                alertService.Success("Item marked as disposed.");
+                // No need to call LoadProductsAsync here because your
+                // SaveProductAsync already calls it internally.
+            }
+            else
+            {
+                alertService.Error(message);
+            }
+        }
+    }
+
+    private async Task HandleClearExpired(List<ProductViewDTO> selectedItems)
+    {
+        if (selectedItems == null || !selectedItems.Any()) return;
+
+        bool confirmed = await alertService.ConfirmAsync(
+            message: $"Are you sure you want to dispose of {selectedItems.Count} selected items?",
+            type: AlertTypeList.Warning,
+            confirmBtnText: "Yes, Dispose All",
+            cancelBtnText: "No"
+        );
+
+        if (confirmed)
+        {
+            // Instead of just deleting, we "Dispose" (Update Stock to 0)
+            // You can loop through or create a specific service method
+            foreach (var item in selectedItems)
+            {
+                item.Product.StockLevel = 0;
+                item.Product.IsActive = false;
+            }
+
+            // Reuse your existing logic for batch updates
+            var result = await ProductService.SaveMultipleProductsAsync(selectedItems.Select(x => x.Product).ToList());
+            
+            if (result.Success)
+            {
+                alertService.Success(result.Message);
+                _tableRef.ClearSelection(); // Clear checkboxes after success
+            }
+            else
+            {
+                alertService.Error(result.Message);
+            }
+        }
+    }
+    // Filtered list based on SearchTerm
+    private IEnumerable<ProductViewDTO> FilteredWatchlist =>
+        string.IsNullOrWhiteSpace(SearchTerm)
+            ? ProductService.ExpiryWatchlist
+            : ProductService.ExpiryWatchlist.Where(x =>
+                x.Product.Name.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                x.Product.Pcode.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase));
+
+    // Final Paged Data
+    private IEnumerable<ProductViewDTO> PagedData => FilteredWatchlist
+        .Skip((_currentPage - 1) * _pageSize)
+        .Take(_pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!ProductService.ProductDisplayList.Any())
+        {
+            await SyncInventory(); // Use the sync method for initial load too
+        }
+    }
+
+   
+    private async Task SyncInventory()
+    {
+        try
+        {
+            _isSyncing = true;
+            await ProductService.LoadProductsAsync();
+            
+            alertService.Success($"Found {ProductService.ExpiryWatchlist.Count} items expiring soon.");
+       
+        }
+        catch (Exception ex)
+        {
+            alertService.Error($"Sync Failed: {ex.Message}");
+        }
+        finally
+        {
+            _isSyncing = false;
+        }
+    }
+
+    private void HandlePageChanged(int newPage)
+    {
+        _currentPage = newPage;
+    }
+
+    private string GetExpiryLabel(int days)
+    {
+        if (days <= 0) return "EXPIRED";
+        if (days <= 7) return $"CRITICAL ({days}d)";
+        if (days <= 30) return $"WARNING ({days}d)";
+        return "SAFE";
+    }
+}

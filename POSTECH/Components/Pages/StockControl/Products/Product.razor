@@ -1,0 +1,529 @@
+﻿@page "/inventory/product"
+@using TCZPOS.Components.Services
+@using TCZPOS.Components.Modules
+@inject ProductServices productService
+@inject NavigationManager nav
+
+<div class="flex h-screen w-full flex-col overflow-hidden font-sans text-white">
+    <div class=" flex flex-col bg-[#1A252F] p-4 shadow-xl lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+        <div class="flex items-center gap-3 pb-3 lg:pb-0">
+            <h2 class="text-xl font-bold text-white uppercase tracking-tight">Product <span class="text-orange-500">Manager</span></h2>
+
+        </div>
+
+        <div class="mb-3 h-px w-full bg-slate-800 lg:hidden"></div>
+        <div class="flex bg-slate-800/50 p-1 rounded-xl border border-slate-700">
+            <button @onclick='() => SwitchTab("Products")'
+                    class="px-6 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all @(_activeTab == "Products" ? "bg-orange-500 text-white shadow-lg" : "text-slate-400 hover:text-white")">
+                Products (@productService.ProductDisplayList.Count(x => x.Product.IsActive))
+            </button>
+            <button @onclick='() => SwitchTab("Expiry")'
+                    class="px-6 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all @(_activeTab == "Expiry" ? "bg-orange-500 text-white shadow-lg" : "text-slate-400 hover:text-white")">
+                Expiry (@productService.ExpiringSoonCount)
+            </button>
+        </div>
+       
+    </div>
+   
+    <div class="flex flex-1 flex-col overflow-hidden lg:flex-row">
+        <div class="flex flex-1 flex-col overflow-hidden bg-white text-slate-800">
+            <div class="flex flex-col border-b bg-slate-50/50">
+                <div class="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+                    <div class="flex flex-1 items-center gap-3">
+                        <div class="flex flex-1 max-w-md overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-orange-500 focus-within:ring-1 focus-within:ring-orange-500/20">
+                            <input type="text" @bind="SearchTerm" @bind:event="oninput"
+                                   class="w-full px-4 py-2 text-sm font-medium outline-none"
+                                   placeholder="Quick search product..." />
+                            <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                                <i class="fas fa-search text-xs"></i>
+                            </div>
+                        </div>
+            
+                        <button @onclick="OpenAddModal"
+                                class="flex h-[40px] items-center gap-2 rounded-xl bg-slate-900 px-5 font-black text-[10px] uppercase tracking-widest text-white shadow-lg transition-all hover:bg-orange-600 active:scale-95">
+                            <i class="fas fa-plus"></i>
+                            <span class="hidden sm:inline">New Product</span>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0">
+                        <button @onclick='() => SetFilter("All")'
+                                class="whitespace-nowrap rounded-full px-4 py-1.5 text-[10px] font-bold uppercase transition-all @(_activeFilter == "All" ? "bg-orange-500 text-white" : "bg-white border border-slate-200 text-slate-500")">
+                            All
+                        </button>
+                        <button @onclick='() => SetFilter("Recent")'
+                                class="whitespace-nowrap rounded-full px-4 py-1.5 text-[10px] font-bold uppercase transition-all @(_activeFilter == "Recent" ? "bg-orange-500 text-white" : "bg-white border border-slate-200 text-slate-500")">
+                            Recently Added
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-1 border-t border-slate-200 bg-white px-4 py-1.5">
+                    <span class="mr-2 text-[9px] font-black uppercase tracking-tighter text-slate-400">Index:</span>
+                    <div class="flex flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar">
+                        <button @onclick='() => SetLetter("All")'
+                                class="px-2 py-1 text-[10px] font-bold @(_selectedLetter == "All" ? "text-orange-600 underline" : "text-slate-400 hover:text-slate-900")">
+                            All
+                        </button>
+                        @foreach (var letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                        {
+                            var l = letter.ToString();
+                            <button @onclick="() => SetLetter(l)"
+                                    class="min-w-[24px] px-1 py-1 text-[10px] font-bold transition-colors @(_selectedLetter == l ? "rounded bg-orange-100 text-orange-700" : "text-slate-400 hover:text-slate-900")">
+                                @l
+                            </button>
+                        }
+                    </div>
+        
+                    @if (_selectedLetter != "All" || _activeFilter != "All" || !string.IsNullOrEmpty(_searchTerm))
+                    {
+                        <button @onclick="ClearAllFilters" class="ml-2 text-[9px] font-black text-red-500 uppercase hover:text-red-700">
+                            Reset
+                        </button>
+                    }
+                </div>
+            </div>
+            <!-- TABLE -->
+            <div class="flex flex-1 flex-col overflow-hidden bg-white">
+                <GenericTable SearchTerm="@_searchTerm"
+                              @ref="_tableRef"
+                              TableTitle="Product Records"
+                              Items="PagedData"
+                              IsLoading="productService.IsLoading"
+                              TotalCount="FilteredData.Count()"
+                              PageSize="10"
+                              CurrentPage="@_currentPage"
+                              RowClassFunc='(item) => _selectedDataId == item.Product.Id ? "bg-orange-50/5 border-l-4 border-orange-500 shadow-inner" : "hover:bg-slate-200"'
+                              OnBatchDelete="@((List<ProductViewDTO> list) => HandleBatchDeleteTrigger(list))"
+                              OnPageChanged="HandlePageChange">
+            
+                    <TableHeader>
+                        <th class="md:hidden px-4 py-3 text-left text-[10px] uppercase font-black tracking-widest text-slate-400">Product Details</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400">Product Name</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400">Category/Brand</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400">Stock</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase tracking-widest text-slate-400">Price</th>
+                        <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-right tracking-widest text-slate-400">Commands</th>
+                    </TableHeader>
+                    <RowTemplate Context="data">
+                        @* --- MOBILE VIEW (Same as before with separation line) --- *@
+                        <td colspan="7" class="md:hidden p-3 border-b-4 border-slate-100 bg-white">
+                            <div class="flex flex-col gap-4">
+                                @* Detail Section: Category/Brand Grid *@
+                                <div class="grid grid-cols-2 gap-2 py-3 px-3 bg-slate-50 rounded-lg border border-slate-100">
+                                    <div>
+                                        <p class="text-[9px] uppercase font-bold text-slate-400 tracking-wider">Category</p>
+                                        <p class="text-xs font-semibold text-slate-700 truncate">@data.Item.CategoryName</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-[9px] uppercase font-bold text-slate-400 tracking-wider text-right">Brand</p>
+                                        <p class="text-xs font-semibold text-slate-700 text-right truncate">@data.Item.BrandName</p>
+                                    </div>
+                                </div>
+
+                              
+                                @* Header Section: Title and Code *@
+                                <div class="flex justify-between items-start">
+                                    <div class="flex flex-col gap-1">
+                                        <h4 class="font-black text-slate-900 text-sm leading-tight uppercase tracking-tight">
+                                            @data.Item.Product.Name
+                                        </h4>
+                                        <div class="flex flex-wrap gap-1">
+                                            <span class="bg-slate-100 text-slate-500 font-mono text-[10px] px-1.5 py-0.5 rounded uppercase">
+                                                #@data.Item.Product.Pcode
+                                            </span>
+                                            <span class="bg-yellow-400 border border-yellow-300 text-white font-bold text-[10px] px-1.5 py-0.5 rounded uppercase ">
+                                                @data.Item.Product.Unit
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="text-[10px] text-slate-400 uppercase font-black mb-1">Current Stock</div>
+                                        <span class="text-xl font-black font-mono @data.Item.Product.StockStatusColor">
+                                            @data.Item.Product.StockLevel
+                                        </span>
+                                    </div>
+                                </div>
+
+                                @* Footer Section: Price and Buttons *@
+                                <div class="flex justify-between items-center">
+                                    <div class="flex flex-col">
+                                        <span class="text-[10px] text-slate-400 font-black uppercase tracking-widest">Selling Price</span>
+                                        <span class="text-lg font-black text-slate-800">₱@data.Item.Product.SellingPrice.ToString("N2")</span>
+                                    </div>
+                
+                                    <div class="flex items-center gap-2">
+                                        @* Larger touch targets for buttons *@
+                                        <button @onclick="() => OpenEditModal(data.Item)" class="flex items-center justify-center w-10 h-10 bg-indigo-50 text-indigo-600 rounded-full shadow-sm hover:bg-indigo-100 active:scale-95 transition-all">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button @onclick="() => OpenDeleteModal(data.Item)" class="flex items-center justify-center w-10 h-10 bg-red-50 text-red-600 rounded-full shadow-sm hover:bg-red-100 active:scale-95 transition-all">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                        @* --- DESKTOP VIEW --- *@
+                        <td class="hidden md:table-cell px-6 py-4">
+                            <div class="flex flex-col">
+                                <span class="font-bold text-slate-800 text-sm uppercase">@data.Item.Product.Name</span>
+                                <span class="text-[10px] font-mono text-slate-400 uppercase">#@data.Item.Product.Pcode</span>
+                            </div>
+                        </td>
+
+                        <td class="hidden md:table-cell px-6 py-4">
+                            <div class="flex flex-col gap-1">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 uppercase w-fit">
+                                    @data.Item.CategoryName
+                                </span>
+                                <span class="text-xs text-slate-500 italic">@data.Item.BrandName</span>
+                            </div>
+                        </td>
+
+                        <td class="hidden md:table-cell px-6 py-4">
+                            <div class="flex flex-col">
+                                <span class="text-sm font-black font-mono @data.Item.Product.StockStatusColor">
+                                    @data.Item.Product.StockLevel
+                                </span>
+                                <span class="text-[10px] text-slate-400 uppercase font-bold">@data.Item.Product.Unit</span>
+                            </div>
+                        </td>
+
+                        <td class="hidden md:table-cell px-6 py-4">
+                            <span class="text-sm font-black text-slate-700">
+                                ₱@data.Item.Product.SellingPrice.ToString("N2")
+                            </span>
+                        </td>
+
+                        <td class="hidden md:table-cell px-6 py-4 text-right">
+                            <div class="flex justify-end gap-2">
+                                @if (_activeTab == "Expiry")
+                                {
+                                    @* Disposal/Clearance Button for Expiring Items *@
+                                    <button @onclick="() => OpenDisposalModal(data.Item)"
+                                            class="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors" title="Dispose">
+                                        <i class="fas fa-dumpster"></i>
+                                    </button>
+                                }
+                                <button @onclick="() => OpenEditModal(data.Item)"
+                                        class="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Edit">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button @onclick="() => OpenDeleteModal(data.Item)"
+                                        class="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </RowTemplate>
+                </GenericTable>
+           
+            </div>
+            <!-- TABLE END -->
+            
+        </div>
+    </div>
+</div>
+
+
+@if (_showDeleteModal)
+{
+    @* --- MODAL: SINGLE DELETE --- *@
+    <Modal IsVisible="_showDeleteModal" Title="Confirm Deletion" OnClose="() => _showDeleteModal = false" OnConfirm="HandleDelete">
+        <div class="p-2 text-center">
+            <div class="mb-4 flex justify-center">
+                <div class="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10 text-red-500 shadow-inner">
+                    <i class="fas fa-exclamation-triangle text-2xl"></i>
+                </div>
+            </div>
+            <h3 class="text-lg font-bold text-white uppercase">System Warning</h3>
+            <p class="mt-2 text-sm text-gray-400">
+                You are about to permanently remove the product:
+                @* FIXED: Use _activeProduct.Name instead of _activeCategory *@
+                <span class="block mt-1 font-mono font-bold text-orange-500">@_activeProduct.Name</span>
+            </p>
+            <p class="mt-4 text-[10px] text-gray-600 uppercase tracking-widest">This action cannot be undone.</p>
+        </div>
+    </Modal>
+}
+
+@if (_showBatchModal)
+{
+    @* --- MODAL: BATCH DELETE --- *@
+    <Modal IsVisible="_showBatchModal"
+           Title="Batch Disposal Authorization"
+           OnClose="() => _showBatchModal = false"
+           OnConfirm="ConfirmBatchDelete">
+        <div class="p-2 text-center">
+            <div class="mb-4 flex justify-center">
+                <div class="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10 text-red-500 shadow-inner">
+                    <i class="fas fa-layer-group text-2xl"></i>
+                </div>
+            </div>
+            <h3 class="text-lg font-bold text-white uppercase tracking-tighter">Bulk Action Warning</h3>
+            <p class="mt-2 text-sm text-gray-400">
+                You are about to erase <span class="text-red-500 font-black">@_itemsToDelete.Count</span> product records.
+            </p>
+
+            <div class="mt-4 max-h-32 overflow-y-auto rounded-xl bg-gray-900/50 border border-gray-700 p-3 text-left custom-scrollbar">
+                @foreach (var item in _itemsToDelete)
+                {
+                    <div class="flex items-center gap-2 py-1 border-b border-gray-800 last:border-0">
+                        <div class="h-1 w-1 rounded-full bg-red-500"></div>
+                        <span class="text-[10px] font-mono text-gray-400 uppercase">@item.Product.Name</span>
+                    </div>
+                }
+            </div>
+
+            <p class="mt-4 text-[10px] text-gray-600 uppercase tracking-widest italic font-bold">
+                Proceeding will permanently wipe these entries.
+            </p>
+        </div>
+    </Modal>
+}
+
+@if (_showDisposalModal)
+{
+    <Modal IsVisible="_showDisposalModal"
+           Title="Inventory Disposal"
+           OnClose="() => _showDisposalModal = false"
+           OnConfirm="ConfirmDisposal">
+        <div class="p-2 text-center">
+            <div class="mb-4 flex justify-center">
+                <div class="flex h-16 w-16 items-center justify-center rounded-full bg-orange-500/10 text-orange-500 shadow-inner">
+                    <i class="fas fa-dumpster text-2xl"></i>
+                </div>
+            </div>
+            <h3 class="text-lg font-bold text-white uppercase tracking-tighter">Confirm Disposal</h3>
+            <p class="mt-2 text-sm text-gray-400">
+                Disposing of <span class="text-orange-500 font-black">@_itemsToDispose.Count</span> items.
+                <span class="block text-[10px] mt-1 text-gray-500 uppercase">Stock will be zeroed and items hidden from sales.</span>
+            </p>
+
+            <div class="mt-4 max-h-32 overflow-y-auto rounded-xl bg-gray-900/50 border border-gray-700 p-3 text-left custom-scrollbar">
+                @foreach (var item in _itemsToDispose)
+                {
+                    <div class="flex items-center justify-between py-1 border-b border-gray-800 last:border-0">
+                        <span class="text-[10px] font-mono text-gray-300">@item.Product.Name</span>
+                        <span class="text-[9px] text-red-400 font-bold uppercase">Exp: @item.Product.ExpiryDate?.ToString("MM/dd/yy")</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </Modal>
+}
+@code {
+    [SupplyParameterFromQuery]
+    public string? tab { get; set; }
+     
+    private bool _showDisposalModal = false;
+    private List<ProductViewDTO> _itemsToDispose = new();
+    private bool _showBatchModal = false;
+    private GenericTable<ProductViewDTO> _tableRef = default!;
+    private List<ProductViewDTO> _itemsToDelete = new();
+    private string _activeTab = "Products";
+   
+    private int _currentPage = 1;
+    private int _pageSize = 10;
+    private string _searchTerm = "";
+    private string _selectedLetter = "All";
+    private string _activeFilter = "All";
+    private int _selectedDataId = -1;
+
+    private bool _showDeleteModal = false;
+    private string? _modalError;
+    
+    private ProductModels _activeProduct = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(tab))
+        {
+            _activeTab = tab;
+        }
+        await productService.LoadProductsAsync();
+    }
+
+    private void OpenDisposalModal(ProductViewDTO dto)
+    {
+        _itemsToDispose = new List<ProductViewDTO> { dto };
+        _showDisposalModal = true;
+    }
+
+    private void HandleBatchDisposalTrigger(List<ProductViewDTO> selected)
+    {
+        _itemsToDispose = selected;
+        _showDisposalModal = true;
+    }
+
+    private async Task ConfirmDisposal()
+    {
+        var products = _itemsToDispose.Select(x => x.Product).ToList();
+        // var result = await productService.DisposeMultipleProductsAsync(products);
+    
+        // if (result.Success)
+        // {
+        //     _showDisposalModal = false;
+        //     _tableRef.ClearSelection(); Reset checkboxes
+        //     StateHasChanged();
+        // }
+        // else
+        // {
+        //     _modalError = result.Message;
+        // }
+    }
+    private void SwitchTab(string tabName)
+    {
+        _activeTab = tabName;
+        _currentPage = 1; 
+        _searchTerm = ""; 
+        StateHasChanged();
+    }
+
+
+    private IEnumerable<ProductViewDTO> FilteredData =>
+    productService.ProductDisplayList
+    .Where(x =>
+        // TAB FILTER: Show only active in Products tab, only items with expiry in Expiry tab
+        _activeTab == "Products"
+            ? x.Product.IsActive == true
+            : (x.Product.HasExpiry && x.Product.ExpiryDate.HasValue)
+    )
+    .Where(x =>
+        x.Product.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ||
+        x.Product.Barcode.Contains(_searchTerm) ||
+        x.Product.Pcode.Contains(_searchTerm)
+    )
+    .Where(x => _selectedLetter == "All" ||
+                x.Product.Name.StartsWith(_selectedLetter, StringComparison.OrdinalIgnoreCase))
+    .Where(x => _activeFilter switch
+    {
+        "Recent" => x.Product.CreatedAt >= DateTime.Now.AddDays(-7),
+        _ => true
+    });
+
+    private IEnumerable<ProductViewDTO> PagedData =>
+        FilteredData
+        .Skip((_currentPage - 1) * _pageSize)
+        .Take(_pageSize);
+
+    private string SearchTerm
+    {
+        get => _searchTerm;
+        set
+        {
+            if (_searchTerm != value)
+            {
+                _searchTerm = value;
+                _currentPage = 1;
+            }
+        }
+    }
+    private void SetLetter(string letter)
+    {
+        _selectedLetter = letter;
+        _currentPage = 1;
+    }
+
+    private void SetFilter(string filter)
+    {
+        _activeFilter = filter;
+        _currentPage = 1;
+    }
+    private void ClearAllFilters()
+    {
+        _searchTerm = "";
+        _selectedLetter = "All";
+        _activeFilter = "All";
+        _currentPage = 1;
+        StateHasChanged();
+    }
+
+
+    // --- Action Handlers ---
+    private void HandleBatchDeleteTrigger(List<ProductViewDTO> selected)
+    {
+        _itemsToDelete = selected;
+        _showBatchModal = true;
+    }
+
+    private async Task ConfirmBatchDelete()
+    {
+        var result = await productService.DeleteMultipleProductsAsync(_itemsToDelete);
+        if (result.Success)
+        {
+            _showBatchModal = false;
+            _itemsToDelete.Clear();
+            StateHasChanged();
+        }
+        else
+        {
+            _modalError = result.Message;
+        }
+    }
+    private void OpenDeleteModal(ProductViewDTO dto)
+    {
+        _activeProduct = dto.Product;
+        _showDeleteModal = true;
+    }
+
+    private async Task HandleDelete()
+    {
+        var result = await productService.DeleteProductAsync(_activeProduct);
+        if (result.Success)
+        {
+            _showDeleteModal = false;
+            _selectedDataId = -1;
+        
+            StateHasChanged();
+        }
+        else
+        {
+            _modalError = result.Message;
+        }
+    }
+
+    private void CloseModal()
+    {
+        _modalError = null;
+    }
+    private async Task HandleSave()
+    {
+        var result = await productService.SaveProductAsync(_activeProduct);
+        if (result.Success)
+        {
+            StateHasChanged();
+        }
+        else
+        {
+            _modalError = result.Message;
+        }
+    }
+
+    private void HandlePageChange(int newPage)
+    {
+        var maxPage = (int)Math.Ceiling((double)FilteredData.Count() / _pageSize);
+        
+        if (newPage >= 1 && newPage <= maxPage)
+        {
+            _currentPage = newPage;
+            StateHasChanged(); 
+        }
+    }
+
+    private void OpenAddModal()
+    {
+        _activeProduct = new ProductModels();
+        _modalError = null;
+        nav.NavigateTo($"/inventory/product/new");
+   
+    }
+
+    private void OpenEditModal(ProductViewDTO dto)
+    {
+        
+        _modalError = null;
+        nav.NavigateTo($"/inventory/product/update/{dto.Product.SecureId}");
+    }
+}

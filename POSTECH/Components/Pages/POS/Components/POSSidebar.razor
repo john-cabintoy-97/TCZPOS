@@ -1,0 +1,113 @@
+﻿@using TCZPOS.Components.Modules.UX
+@using TCZPOS.Components.Extension
+@using TCZPOS.Components.Guard.Interface
+@inject IGatekeeperService Gatekeeper
+
+<div class="hidden flex-col gap-3 bg-[#1a252f] p-4 lg:flex lg:w-72">
+    <Button Variant="ButtonVariant.Sidebar"
+            Icon="fas fa-file-invoice"
+            IconBg="bg-blue-600"
+            class="bg-orange-500 border-none shadow-lg !p-2"
+            Label="New Transaction"
+            Shortcut="F1"
+            OnClick="OnNewTransaction" />
+
+    @* F2: Search Product *@
+    <Button Variant="ButtonVariant.Sidebar"
+            Icon="fas fa-search"
+            IconBg="bg-[#50a384]"
+            Label="Search Product"
+            class="!p-2"
+            Shortcut="F2"
+            IsEnabled="IsTransactionActive"
+            OnClick="OnSearch" />
+    @* F3: Discount *@
+    <Button Variant="ButtonVariant.Sidebar"
+            Icon="fas fa-tag"
+            IconBg="bg-[#FFFF00]"
+            IconText="text-slate-900"
+            Label="Discount"
+            class="!p-2"
+            Shortcut="F3"
+            IsEnabled="@(IsTransactionActive && HasItems && IsItemSelected)"
+            OnClick="OnDiscount" />
+
+    @* F4: Settle Payment *@
+    <Button Variant="ButtonVariant.Sidebar"
+            Icon="fas fa-cash-register"
+            IconBg="bg-slate-900"
+            IconText="text-[#a3ff00]"
+            Label="Settle Payment"
+            class="!p-2"
+            Shortcut="F4"
+            IsEnabled="@(IsTransactionActive && HasItems)"
+            OnClick="OnSettle" />
+
+    @* F5: Cart Clear *@
+    <Button Variant="ButtonVariant.Sidebar"
+            Icon="fas fa-shopping-cart"
+            IconBg="bg-blue-900"
+            IconText="text-[#a3ff00]"
+            Label="Clear Cart"
+            class="!p-2"
+            Shortcut="F5"
+            IsEnabled="@(IsTransactionActive && HasItems)"
+            OnClick="OnClear" />
+
+    <Button Variant="ButtonVariant.Sidebar"
+            Icon="fas fa-pause-circle"
+            IconBg="bg-orange-600"
+            IconText="text-white"
+            Label="Hold Order"
+            class="!p-2 relative"
+            Shortcut="F6"
+            OnClick="OnHold">
+        <ChildContent>
+            @if (HeldOrdersCount > 0)
+            {
+                <span class="absolute right-4 top-1/2 -translate-y-1/2 bg-amber-500 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded-full shadow-lg z-10 animate-pulse">
+                    @HeldOrdersCount
+                </span>
+            }
+        </ChildContent>
+    </Button>
+
+    <Button Variant="ButtonVariant.Sidebar"
+            Icon="fas fa-calendar-check"
+            IconBg="bg-[#56857D]"
+            IconText="text-white"
+            Label="Daily Sales"
+            class="!p-2"
+            Shortcut="F7"
+            OnClick="OnSales" />
+    
+    
+    <div class="flex-1"></div>
+
+    @* System: Dashboard *@
+    <Button Variant="ButtonVariant.Sidebar"
+            Icon="fas fa-arrow-left"
+            IconBg="bg-red-500"
+            class="bg-slate-500/50 border-red-500/20 hover:bg-red-500 hover:text-white !p-2"
+            Label="@(Gatekeeper.ActiveStaff?.Role == StaffRole.Cashier ? "Exit Terminal" : "Dashboard")"
+            Shortcut="System"
+            OnClick="OnExit" />
+
+   
+</div>
+
+@code {
+    [Parameter] public bool IsTransactionActive { get; set; }
+    [Parameter] public bool HasItems { get; set; }
+    [Parameter] public bool IsItemSelected { get; set; }
+    [Parameter] public int HeldOrdersCount { get; set; }
+    [Parameter] public EventCallback OnNewTransaction { get; set; }
+    [Parameter] public EventCallback OnSearch { get; set; }
+    [Parameter] public EventCallback OnHold { get; set; }
+    [Parameter] public EventCallback OnDiscount { get; set; }
+    [Parameter] public EventCallback OnSales { get; set; }
+    [Parameter] public EventCallback OnSettle { get; set; }
+    [Parameter] public EventCallback OnExit { get; set; }
+    [Parameter] public EventCallback OnClear { get; set; }
+
+}

@@ -1,0 +1,128 @@
+﻿@page "/inventory/product/update/{SecureId:guid}"
+@inject ProductServices productService
+@inject NavigationManager nav
+
+<div class="min-h-screen bg-slate-50/50 ">
+    @* Header Navigation *@
+    <div class="bg-[#1A252F] border-b border-slate-200 pb-6">
+        <div class="mx-8 pt-2 flex items-center  justify-between">
+            <div>
+                <h2 class="md:text-2xl font-black text-white uppercase tracking-tight">
+                    Edit <span class="text-orange-500">Product</span>
+                </h2>
+                <p class="text-[10px] text-slate-400 uppercase font-bold tracking-widest mt-1">
+                    UUID: @SecureId.ToString().Substring(0, 8)...
+                </p>
+            </div>
+            <button @onclick='() => nav.NavigateTo("/inventory/product")'
+                    class="md:h-10 md:w-10 h-5 w-5 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-100 transition-all shadow-sm">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="mb-6 rounded-xl border border-red-500/50 bg-red-500/10 p-4 text-xs font-bold uppercase tracking-widest text-red-500 animate-pulse">
+            <i class="fas fa-exclamation-triangle mr-2"></i> @_errorMessage
+        </div>
+    }
+
+    @if (_updateProduct != null)
+    {
+        @* The Modular Form *@
+        <div class="m-3 lg:rounded-3xl lg:border lg:border-slate-200 lg:shadow-xl lg:shadow-slate-200/50">
+            <FormProduct Mode="update" Product="_updateProduct" />
+        </div>
+        @* Action Bar *@
+        <div class="m-3 md:mx-4 lg:rounded-3xl lg:border lg:border-slate-200 lg:shadow-xl lg:shadow-slate-200/50 flex flex-col-reverse items-center justify-end gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:flex-row md:gap-4 md:shadow-lg">
+            <button type="button"
+                    @onclick='() => nav.NavigateTo("/inventory/product")'
+                    class="w-full md:w-auto px-6 py-3 text-sm font-bold text-gray-500 uppercase hover:text-gray-300 transition-colors">
+                Discard Changes
+            </button>
+
+            <button type="button"
+                    @onclick="Update"
+                    class="w-full md:w-auto flex items-center justify-center rounded-xl bg-orange-600 px-10 py-4 md:py-3 font-black text-white shadow-lg shadow-orange-900/20 hover:bg-orange-500 active:scale-95 transition-all">
+                @if (productService.IsLoading)
+                {
+                    <i class="fas fa-circle-notch fa-spin mr-2"></i>
+                }
+                SAVE CHANGES
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="flex flex-col items-center justify-center p-20 text-gray-600 uppercase tracking-tighter font-black">
+            <i class="fas fa-search-minus text-4xl mb-4 opacity-20"></i>
+            Locating Record...
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid SecureId { get; set; }
+
+    private ProductModels? _updateProduct;
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!productService.ProductDisplayList.Any())
+        {
+            await productService.LoadProductsAsync();
+        }
+
+        var existing = productService.GetProductBySecureId(SecureId);
+
+        if (existing != null)
+        {
+            _updateProduct = CloneProduct(existing.Product);
+        }
+        else
+        {
+            _errorMessage = "System Error: Product footprint not found in current session.";
+        }
+    }
+
+    private async Task Update()
+    {
+        if (_updateProduct == null) return;
+
+        _errorMessage = null;
+        var result = await productService.SaveProductAsync(_updateProduct);
+        
+        if (result.Success)
+        {
+            nav.NavigateTo("/inventory/product");
+        }
+        else
+        {
+            _errorMessage = result.Message;
+            StateHasChanged();
+        }
+    }
+
+    private ProductModels CloneProduct(ProductModels p) => new()
+    {
+        Id = p.Id,
+        SecureId = p.SecureId,
+        Name = p.Name,
+        Barcode = p.Barcode,
+        Pcode = p.Pcode,
+        CategoryId = p.CategoryId,
+        BrandId = p.BrandId,
+        VendorId = p.VendorId,
+        CostPrice = p.CostPrice,
+        SellingPrice = p.SellingPrice,
+        StockLevel = p.StockLevel,
+        Unit = p.Unit,
+        CreatedAt = p.CreatedAt,
+        IsActive = p.IsActive,
+        ReorderPoint = p.ReorderPoint,
+        HasExpiry = p.HasExpiry,
+        ExpiryDate = p.ExpiryDate
+    };
+}

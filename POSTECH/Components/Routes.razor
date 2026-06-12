@@ -1,0 +1,33 @@
+﻿@using Microsoft.AspNetCore.Components.Authorization
+@using TCZPOS.Components.Pages.Auth
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(MauiProgram).Assembly">
+        <Found Context="routeData">
+            @* AuthorizeRouteView is the key: it checks the [Authorize] attribute on your pages *@
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)">
+                
+                <NotAuthorized>
+                    @* This 'LayoutView' acts as a circuit breaker.
+       It tells Blazor to ignore MainLayout and use AuthLayout as the TOP level. *@
+                    <LayoutView Layout="@typeof(Layout.AuthLayout)">
+                        <Login />
+                    </LayoutView>
+                </NotAuthorized>
+
+                <Authorizing>
+                    @* Optional: What shows for a split second while checking SecureStorage *@
+                    <div class="vh-100 d-flex align-items-center justify-content-center bg-black">
+                        <div class="spinner-border text-warning" role="status"></div>
+                    </div>
+                </Authorizing>
+
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <LayoutView Layout="@typeof(Layout.MainLayout)">
+                <p role="alert">Sorry, there's nothing at this address.</p>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

@@ -1,0 +1,662 @@
+﻿@page "/customers/credit"
+@using TCZPOS.Components.Services
+@using TCZPOS.Components.Models
+@using TCZPOS.Components.DTOs
+@using TCZPOS.Components.Extension
+@inject CustomerCreditService CreditService
+@inject AlertServices alertService
+@using CommunityToolkit.Maui.Storage
+@using System.Text
+@using MiniExcelLibs
+@inject IFileSaver FileSaver
+@using PdfSharpCore.Pdf;
+@using PdfSharpCore.Drawing;
+@inject FileLauncherExt FileLauncher
+
+<div class="flex h-screen w-full flex-col overflow-hidden font-sans text-white">
+    @* HEADER SECTION *@
+    <div class="flex flex-col bg-[#1A252F] p-4 shadow-xl lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+        <div>
+            <h2 class="text-xl font-bold uppercase tracking-tight">
+                Credit <span class="text-orange-500">Ledger</span>
+            </h2>
+            <p class="text-[10px] font-medium text-slate-400">Detailed credit history and transaction logs</p>
+        </div>
+
+        <div class="mb-3 h-px w-full bg-slate-800 lg:hidden"></div>
+
+        <div class="flex items-center justify-between gap-3 lg:flex-none lg:justify-end">
+            <button @onclick="SyncBalances" disabled="@IsSyncing"
+                    class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-black uppercase transition-all shadow-lg active:scale-95 disabled:opacity-50">
+                <i class="fas fa-sync-alt @(IsSyncing ? "fa-spin" : "")"></i>
+                @(IsSyncing ? "Repairing Database..." : "Sync & Repair Balances")
+            </button>
+        </div>
+    </div>
+
+    @* FILTER & TABLE SECTION *@
+    <div class="flex flex-1 flex-col overflow-hidden bg-white text-slate-800">
+        @* COMPACT FILTER BAR *@
+        <div class="border-b bg-slate-50/50 px-3 py-2">
+            <div class="mb-2 flex w-full items-center gap-2">
+                <div class="flex flex-1 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-orange-500 shadow-sm">
+                    <input type="text" @bind="SearchTerm" @bind:event="oninput"
+                           class="w-full px-3 py-2 text-sm font-medium outline-none"
+                           placeholder="Search Invoice, Customer, or Cashier..." />
+                    <div class="flex items-center bg-slate-50 px-3 border-l border-slate-200 text-slate-400">
+                        <i class="fas fa-search text-xs"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <div class="flex w-full items-center justify-between gap-2 sm:w-auto">
+                    <div class="flex flex-row items-center gap-2 w-full sm:w-auto">
+                        <div class="flex-1">
+                            <ComboBox TItem="string"
+                                      TValue="string"
+                                      Value="SelectedCashier"
+                                      ValueChanged="@((val) => { SelectedCashier = (string)val!; })"
+                                      Items='CashierList'
+                                      Placeholder="CASHIER"
+                                      ValueSelector="@(name => name)"
+                                      SearchSelector="@(name => name)"
+                                      BgClass="bg-white p-1 font-bold uppercase"
+                                      BorderClass="border-slate-300"
+                                      InputClass="text-[10px] placeholder:text-[10px] font-bold uppercase outline-none cursor-pointer text-slate-600"
+                                      ContainerClass="flex-1 mb-0"
+                                      IconClass="fas fa-user-tie">
+                                <ItemTemplate>@context</ItemTemplate>
+                            </ComboBox>
+                        </div>
+                    </div>
+
+                    <div class="flex shrink-0 items-center rounded-lg bg-slate-200 p-0.5">
+                        <button @onclick='() => SetFilter("All")'
+                                class="px-3  py-1 text-[9px] font-black uppercase rounded-md transition-all @(ActiveFilter == "All" ? "bg-slate-800 text-white shadow-md" : "bg-slate-200 text-slate-500")">
+                            All Records
+                        </button>
+                        <button @onclick='() => SetFilter("Unpaid")'
+                                class="px-3 py-1 text-[9px] font-black uppercase rounded-md transition-all @(ActiveFilter == "Unpaid" ? "bg-red-500 text-white shadow-md" : "bg-slate-200 text-slate-500")">
+                            Active Debts
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* OPTIMIZED MOBILE DASHBOARD STATS *@
+        <div class="flex flex-col border-b bg-white px-4 py-3 md:flex-row md:items-center md:justify-between gap-4">
+            @* Grid layout for stats *@
+            <div class="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-center sm:gap-6">
+        
+                @* Total Value *@
+                <div class="flex items-center gap-2 p-2 rounded-xl bg-slate-50 border border-slate-100 sm:bg-transparent sm:border-none sm:p-0">
+                    <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+                        <i class="fas fa-shopping-cart text-[10px]"></i>
+                    </div>
+                    <div class="overflow-hidden">
+                        <p class="truncate text-[8px] font-black uppercase text-slate-400">Total Value</p>
+                        <p class="truncate text-xs font-black text-slate-800">₱@TotalPurchased.ToString("N2")</p>
+                    </div>
+                </div>
+
+                @* Payments Received *@
+                <div class="flex items-center gap-2 p-2 rounded-xl bg-slate-50 border border-slate-100 sm:bg-transparent sm:border-none sm:p-0">
+                    <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+                        <i class="fas fa-hand-holding-usd text-[10px]"></i>
+                    </div>
+                    <div class="overflow-hidden">
+                        <p class="truncate text-[8px] font-black uppercase text-slate-400">Received</p>
+                        <p class="truncate text-xs font-black text-slate-800">₱@TotalPaid.ToString("N2")</p>
+                    </div>
+                </div>
+
+                @* Net Outstanding & Mobile Buttons *@
+                <div class="col-span-2 flex items-center justify-between p-3 rounded-xl @(CurrentBalance < 0 ? "bg-emerald-50 border-emerald-100" : "bg-red-50 border-red-100") border sm:col-span-1 sm:bg-transparent sm:border-none sm:p-0 sm:justify-start sm:gap-2">
+                    <div class="flex items-center gap-2">
+                        <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg @(CurrentBalance < 0 ? "bg-emerald-200 text-emerald-700" : "bg-red-200 text-red-700")">
+                            <i class="fas fa-file-invoice-dollar text-[10px]"></i>
+                        </div>
+                        <div>
+                            <p class="text-[8px] font-black uppercase text-slate-500 whitespace-nowrap">
+                                @(CurrentBalance < 0 ? "Advance Credits" : "Net Outstanding")
+                            </p>
+                            <p class="text-sm font-black @(CurrentBalance < 0 ? "text-emerald-700" : "text-red-700")">
+                                ₱@Math.Abs(CurrentBalance).ToString("N2")
+                            </p>
+                        </div>
+                    </div>
+            
+                    @* Mobile Only Action Buttons - Hidden on MD+ *@
+                    <div class="flex items-center gap-2 md:hidden">
+                        <button @onclick="ExportToExcel" disabled="@(_isExporting || !FilteredHistory.Any())"
+                                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white border border-slate-200 text-emerald-600 shadow-sm active:scale-95">
+                            <i class="fas @(_isExporting ? "fa-circle-notch fa-spin" : "fa-file-excel")"></i>
+                        </button>
+                        <button @onclick="ExportToPdf" disabled="@(_isPdfExporting || !FilteredHistory.Any())"
+                                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-orange-200 bg-orange-50 text-orange-700 shadow-sm active:scale-95">
+                            <i class="fas @(_isPdfExporting ? "fa-circle-notch fa-spin" : "fa-file-pdf")"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            @* Desktop Only Action Buttons - Hidden on mobile/tablet *@
+            <div class="hidden md:flex items-center gap-3">
+                <button @onclick="ExportToExcel" title="Export Excel" disabled="@(_isExporting || !FilteredHistory.Any())"
+                        class="flex h-10 w-10 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-all shadow-sm">
+                    <i class="fas @(_isExporting ? "fa-circle-notch fa-spin" : "fa-file-excel")"></i>
+                </button>
+                <button @onclick="ExportToPdf" title="Export PDF" disabled="@(_isPdfExporting || !FilteredHistory.Any())"
+                        class="flex h-10 w-10 items-center justify-center rounded-full border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-600 hover:text-white transition-all shadow-sm">
+                    <i class="fas @(_isPdfExporting ? "fa-circle-notch fa-spin" : "fa-file-pdf")"></i>
+                </button>
+            </div>
+        </div>
+        @* TABLE INTEGRATION *@
+        <div class="flex-1 overflow-hidden p-2">
+            <GenericTable TItem="SaleModels"
+                          Items="PagedData"
+                          IsLoading="IsLoading"
+                          TotalCount="FilteredHistory.Count()"
+                          PageSize="_pageSize"
+                          CurrentPage="@_currentPage"
+                          ShowSelection="false"
+                          OnPageChanged="HandlePageChanged"
+                          TableTitle="Credit Transaction Logs">
+                <TableHeader>
+                    <th class="md:hidden px-4 py-3 text-left text-[10px] uppercase font-black text-slate-400">Transaction Details</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400">Date</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400">Invoice</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400">Customer</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400 text-right">Amount</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400 text-right">Balance</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400 text-center">Status</th>
+                    <th class="hidden md:table-cell px-6 py-3 font-black text-[10px] uppercase text-slate-400 text-right">Actions</th>
+                </TableHeader>
+                <RowTemplate Context="row">
+                    <td colspan="7" class="md:hidden p-2 border-b-4 border-slate-100 bg-white">
+                        <div class="flex flex-col gap-3 p-3 rounded-2xl border border-slate-200 shadow-sm">
+            
+                            @* Top Row: Status & Reference *@
+                            <div class="flex justify-between items-center">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase @GetStatusClass(row.Item)">
+                                    @row.Item.PaymentStatus
+                                </span>
+                                <span class="text-[10px] font-mono font-bold text-slate-400 uppercase">
+                                    #@row.Item.InvoiceNumber
+                                </span>
+                            </div>
+
+                            @* Middle Section: Customer & Price *@
+                            <div class="flex justify-between items-end">
+                                <div class="flex flex-col">
+                                    <h4 class="font-black text-slate-900 text-base leading-tight">
+                                        @(string.IsNullOrEmpty(row.Item.CustomerName) || row.Item.CustomerName == "Walk-in" ? "Walk-in Customer" : row.Item.CustomerName)
+                                    </h4>
+                                    <div class="flex items-center gap-2 mt-1">
+                                        <span class="text-[10px] font-medium text-slate-500">
+                                            <i class="far fa-calendar-alt mr-1"></i>@row.Item.TransactionDate.ToString("MMM dd, yyyy")
+                                        </span>
+                                        <span class="h-1 w-1 rounded-full bg-slate-300"></span>
+                                        <span class="text-[10px] font-bold text-indigo-600">@row.Item.PaymentType</span>
+                                    </div>
+                                </div>
+                
+                                <div class="text-right">
+                                    <div class="text-xl font-black font-mono text-slate-800">
+                                        ₱@row.Item.NetAmount.ToString("N2")
+                                    </div>
+                                    @if (row.Item.CreditBalance > 0)
+                                    {
+                                        <div class="inline-flex items-center bg-red-50 text-red-600 px-2 py-0.5 rounded mt-1">
+                                            <span class="text-[9px] font-black uppercase">Owes: ₱@row.Item.CreditBalance.ToString("N2")</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+
+                            @* Bottom Section: Staff & Action *@
+                            <div class="flex justify-between items-center pt-3 border-t border-slate-100">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-7 h-7 bg-slate-100 rounded-full flex items-center justify-center text-[10px] font-bold text-slate-500">
+                                        @(row.Item.CashierName?[0].ToString() ?? "A")
+                                    </div>
+                                    <div class="flex flex-col">
+                                        <span class="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">Processed By</span>
+                                        <span class="text-[11px] font-bold text-slate-600">@(row.Item.CashierName ?? "Admin")</span>
+                                    </div>
+                                </div>
+                    
+                                <button @onclick="() => ViewItems(row.Item)"
+                                        class="flex items-center justify-center w-12 h-12 bg-orange-50 text-orange-600 rounded-full shadow-sm active:scale-95 transition-all">
+                                    <i class="fas fa-eye"></i>
+                                 
+                                </button>
+                            </div>
+                        </div>
+                    </td>
+                    @* DESKTOP VIEW *@
+                    <td class="hidden md:table-cell px-6 py-4 text-xs font-mono text-slate-500">@row.Item.TransactionDate.ToString("MMM dd, yyyy HH:mm")</td>
+                    <td class="hidden md:table-cell px-6 py-4 font-black text-slate-700 text-xs">@row.Item.InvoiceNumber</td>
+                    <td class="hidden md:table-cell px-6 py-4 text-xs font-bold uppercase">@row.Item.CustomerName</td>
+                    <td class="hidden md:table-cell px-6 py-4 text-right font-mono text-xs">₱@row.Item.NetAmount.ToString("N2")</td>
+                    <td class="hidden md:table-cell px-6 py-4 text-right font-mono text-sm font-black">
+                        <span class="@(row.Item.CreditBalance > 0 ? "text-red-600" : (row.Item.CreditBalance < 0 ? "text-emerald-600" : "text-slate-400"))">
+                            ₱@row.Item.CreditBalance.ToString("N2")
+                        </span>
+                    </td>
+                    <td class="hidden md:table-cell px-6 py-4 text-center">
+                        <span class="px-2 py-1 rounded text-[9px] font-black uppercase @GetStatusClass(row.Item)">
+                            @row.Item.PaymentStatus
+                        </span>
+                    </td>
+                    <td class="hidden md:table-cell px-6 py-4 text-right">
+                        <button @onclick="() => ViewItems(row.Item)" class="p-2 text-orange-500 hover:bg-orange-50 rounded-lg">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </td>
+                </RowTemplate>
+            </GenericTable>
+        </div>
+    </div>
+</div>
+
+
+
+@if (_showDetailsModal && _selectedSale != null)
+{
+    <Modal IsVisible="_showDetailsModal"
+           Title="Transaction Receipt"
+           ShowFooter="false"
+           customCss="!rounded-br-[15px] !rounded-bl-[15px]"
+           OnClose="() => _showDetailsModal = false">
+        <ChildContent>
+            <div class="flex flex-col gap-4 p-5 font-sans text-slate-800 bg-white min-h-[400px]">
+                <div class="flex justify-between items-start border-b border-dashed border-slate-200 pb-4">
+                    <div>
+                        <h3 class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Invoice Number</h3>
+                        <p class="text-lg font-mono font-bold text-orange-600">@_selectedSale.InvoiceNumber</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="@(_selectedSale.IsVoided ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-600") px-3 py-1 rounded-full text-[10px] font-black uppercase">
+                            @(_selectedSale.IsVoided ? "VOIDED" : "COMPLETED")
+                        </span>
+                        <p class="text-[10px] text-slate-400 mt-1 font-mono uppercase">@_selectedSale.TransactionDate.ToString("MMM dd, yyyy hh:mm tt")</p>
+                    </div>
+                </div>
+
+                @* Customer & Staff Info (Grocery Style) *@
+                <div class="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <div>
+                        <p class="text-[9px] font-black uppercase text-slate-400">Customer</p>
+                        <p class="text-sm font-bold text-slate-700">@(_selectedSale.CustomerName ?? "Walk-in")</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-[9px] font-black uppercase text-slate-400">Cashier</p>
+                        <p class="text-sm font-bold text-slate-700">@(_selectedSale.CashierName ?? "Admin")</p>
+                    </div>
+                </div>
+
+                @* Items List *@
+                <div>
+                    <p class="text-[10px] font-black uppercase text-slate-400 mb-3 tracking-widest">Purchased Items</p>
+                    <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
+                        @if (_selectedSale.Items != null && _selectedSale.Items.Any())
+                        {
+                            @foreach (var detail in _selectedSale.Items)
+                            {
+                                <div class="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-full shadow-sm">
+                                    <span class="flex h-5 min-w-[1.25rem] px-1 shrink-0 items-center justify-center rounded-full bg-slate-800 text-[9px] font-black text-white">
+                                        @detail.Quantity
+                                    </span>
+                    
+                                    <span class="text-xs font-bold text-slate-700 whitespace-nowrap">@detail.ProductName</span>
+                    
+                                    <div class="flex items-center gap-1.5 ml-1 pl-2 border-l border-slate-200">
+                                        <span class="text-[9px] font-medium text-slate-400">
+                                            @@ ₱@detail.UnitPrice.ToString("N2")
+                                        </span>
+
+                                        <i class="fas fa-arrow-right text-[8px] text-slate-300"></i>
+
+                                        @* Subtotal *@
+                                        <span class="font-mono text-[11px] font-black text-orange-600">
+                                            ₱@detail.SubTotal.ToString("N2")
+                                        </span>
+                                    </div>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="w-full py-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                                <p class="text-[10px] text-slate-400 font-bold uppercase">No Items Recorded</p>
+                            </div>
+                        }
+                    </div>
+                </div>
+                @* Totals Summary *@
+                <div class="mt-auto pt-4 border-t-2 border-slate-100">
+                    <div class="flex justify-between text-sm text-slate-500 font-medium">
+                        <span>Subtotal</span>
+                        <span>₱@_selectedSale.TotalAmount.ToString("N2")</span>
+                    </div>
+                    <div class="flex justify-between text-lg font-black text-slate-900 pt-2">
+                        <span>TOTAL BILL</span>
+                        <span class="text-orange-600">₱@_selectedSale.TotalAmount.ToString("N2")</span>
+                    </div>
+                    <div class="mt-2 flex justify-between items-center bg-indigo-50 px-3 py-2 rounded-lg">
+                        <span class="text-[10px] font-black text-indigo-500 uppercase">Payment Method</span>
+                        <span class="text-[10px] font-black text-indigo-700">@_selectedSale.PaymentType</span>
+                    </div>
+                    @if (_selectedSale.PaymentType == "Credit")
+                    {
+                        <div class="flex justify-between text-sm text-orange-600 font-bold mt-1 border-t border-orange-100 pt-1">
+                            <span>Current Debt (Balance)</span>
+                            <span>₱@_selectedSale.CreditBalance.ToString("N2")</span>
+                        </div>
+                        <div class="text-[9px] text-slate-400 italic text-right">
+                            Initial Payment: ₱@_selectedSale.AmountPaid.ToString("N2")
+                        </div>
+                    }
+                </div>
+            </div>
+        </ChildContent>
+    </Modal>
+}
+
+
+@code {
+    private List<SaleModels> CreditHistory = new();
+    private string SearchTerm = "";
+    private string ActiveFilter = "Unpaid";
+    private bool IsLoading = true, _isExporting, _isPdfExporting, IsSyncing = false;
+    private string SelectedCashier = "All";
+    private int _currentPage = 1, _pageSize = 10;
+    
+    private decimal TotalPurchased => FilteredHistory.Sum(x => x.NetAmount);
+    private decimal TotalPaid => FilteredHistory.Sum(x => x.AmountPaid);
+    private decimal CurrentBalance => FilteredHistory.Sum(x => x.CreditBalance);
+
+    private List<string> CashierList { get; set; } = new() { "All" };
+    private void HandlePageChanged(int newPage)
+    {
+        int totalItems = FilteredHistory.Count();
+
+        var maxPage = (int)Math.Ceiling((double)totalItems / _pageSize);
+
+        if (maxPage < 1) maxPage = 1;
+
+        if (newPage >= 1 && newPage <= maxPage)
+        {
+            _currentPage = newPage;
+            StateHasChanged();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        IsLoading = true;
+        CreditHistory = await CreditService.GetCreditHistoryAsync();
+
+        // Refresh Cashier List
+        var cashiers = CreditHistory
+            .Select(x => x.CashierName ?? "Admin")
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
+
+        CashierList = new List<string> { "All" };
+        CashierList.AddRange(cashiers);
+
+        IsLoading = false;
+    }
+
+    private void SetFilter(string filter) => ActiveFilter = filter;
+    private IEnumerable<SaleModels> PagedData => FilteredHistory
+ .Skip((_currentPage - 1) * _pageSize)
+ .Take(_pageSize);
+    private IEnumerable<SaleModels> FilteredHistory => CreditHistory
+         .Where(x => ActiveFilter == "All" || (ActiveFilter == "Unpaid" && x.CreditBalance != 0))
+         .Where(x => SelectedCashier == "All" || (x.CashierName ?? "Admin") == SelectedCashier)
+         .Where(x => string.IsNullOrWhiteSpace(SearchTerm) ||
+                     x.InvoiceNumber.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                     (x.CustomerName != null && x.CustomerName.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase)))
+         .OrderByDescending(x => x.TransactionDate);
+
+    private string GetStatusClass(SaleModels sale) => sale.PaymentStatus switch
+    {
+        "Paid" => "bg-emerald-100 text-emerald-700",
+        "Partial" => "bg-orange-100 text-orange-700",
+        "Credit" => "bg-red-100 text-red-700",
+        _ => "bg-slate-100 text-slate-700"
+    };
+
+    private async Task ExportToPdf()
+    {
+        if (_isPdfExporting) return;
+        _isPdfExporting = true;
+
+        try
+        {
+            // 1. Setup Document
+            PdfDocument document = new PdfDocument();
+            document.Info.Title = "Credit Ledger Report";
+            PdfPage page = document.AddPage();
+            XGraphics gfx = XGraphics.FromPdfPage(page);
+
+            // 2. Define Fonts
+            XFont fontTitle = new XFont("Arial", 16, XFontStyle.Bold);
+            XFont fontHeader = new XFont("Arial", 10, XFontStyle.Bold);
+            XFont fontBody = new XFont("Arial", 9, XFontStyle.Regular);
+            XFont fontFooter = new XFont("Arial", 8, XFontStyle.Italic);
+
+            // 3. Header Branding
+            gfx.DrawString("TCZ-POS: CREDIT LEDGER", fontTitle, XBrushes.DarkSlateGray, new XRect(0, 40, page.Width, 40), XStringFormats.TopCenter);
+            gfx.DrawString($"Generated on: {DateTime.Now:MMM dd, yyyy HH:mm}", fontFooter, XBrushes.Gray, new XRect(0, 65, page.Width, 20), XStringFormats.TopCenter);
+
+            // 4. Draw Table Headers
+            int yPoint = 100;
+            int colDate = 45;
+            int colInvoice = 110;
+            int colCustomer = 210;
+            int colTotal = 390;
+            int colBalance = 475;
+            gfx.DrawRectangle(XPens.LightGray, XBrushes.GhostWhite, 40, yPoint, page.Width - 80, 20);
+
+            var headerFormat = new XStringFormat { LineAlignment = XLineAlignment.Center };
+            gfx.DrawString("DATE", fontHeader, XBrushes.Black, new XRect(colDate, yPoint, 60, 20), headerFormat);
+            gfx.DrawString("INVOICE", fontHeader, XBrushes.Black, new XRect(colInvoice, yPoint, 100, 20), headerFormat);
+            gfx.DrawString("CUSTOMER", fontHeader, XBrushes.Black, new XRect(colCustomer, yPoint, 150, 20), headerFormat);
+            gfx.DrawString("TOTAL", fontHeader, XBrushes.Black, new XRect(colTotal, yPoint, 70, 20), headerFormat);
+            gfx.DrawString("BALANCE", fontHeader, XBrushes.Black, new XRect(colBalance, yPoint, 70, 20), headerFormat);
+            yPoint += 25;
+
+            // 5. Draw Rows
+            XPen linePen = new XPen(XColor.FromArgb(220, 220, 220), 0.5);
+            foreach (var item in FilteredHistory)
+            {
+                if (yPoint > page.Height - 100)
+                {
+                    page = document.AddPage();
+                    gfx = XGraphics.FromPdfPage(page);
+                    yPoint = 40;
+                }
+                int textOffset = 10;
+                gfx.DrawString(item.TransactionDate.ToString("MM/dd/yy"), fontBody, XBrushes.Black, colDate, yPoint + textOffset);
+                gfx.DrawString(item.InvoiceNumber, fontBody, XBrushes.Black, colInvoice, yPoint + textOffset);
+                string displayName = item.CustomerName?.ToUpper() ?? "WALK-IN";
+                gfx.DrawString(displayName, fontBody, XBrushes.Black, colCustomer, yPoint + textOffset);
+                gfx.DrawString($"P{item.NetAmount:N2}", fontBody, XBrushes.Black, colTotal, yPoint + textOffset);
+                var balanceBrush = item.CreditBalance > 0 ? XBrushes.Red : XBrushes.Black;
+                gfx.DrawString($"P{item.CreditBalance:N2}", fontBody, balanceBrush, colBalance, yPoint + textOffset);
+                gfx.DrawLine(linePen, 40, yPoint + 15, page.Width - 40, yPoint + 15);
+                yPoint += 20;
+            }
+
+            // 6. Summary Section
+            yPoint += 20;
+            gfx.DrawRectangle(XBrushes.AliceBlue, 350, yPoint, 200, 60);
+            gfx.DrawString($"Total Purchased: P{TotalPurchased:N2}", fontBody, XBrushes.Black, 360, yPoint + 15);
+            gfx.DrawString($"Total Received:  P{TotalPaid:N2}", fontBody, XBrushes.Black, 360, yPoint + 35);
+            gfx.DrawString($"NET OUTSTANDING: P{CurrentBalance:N2}", fontHeader, XBrushes.DarkRed, 360, yPoint + 55);
+
+            // 7. Save to Bytes
+            byte[] pdfBytes;
+            using (var ms = new MemoryStream())
+            {
+                document.Save(ms);
+                pdfBytes = ms.ToArray();
+                ms.Close();
+            }
+
+            var fileName = GetDynamicFileName("pdf");
+            using var finalStream = new MemoryStream(pdfBytes);
+            var result = await FileSaver.SaveAsync(fileName, finalStream, default);
+            if (result.IsSuccessful)
+            {
+                // 1. Give the Android Media Scanner a head start
+                await Task.Delay(1000);
+
+                // 2. Validation Loop: Check if the file is still 0B
+                int retryCount = 0;
+                while (retryCount < 5)
+                {
+                    var fileInfo = new System.IO.FileInfo(result.FilePath);
+                    if (fileInfo.Exists && fileInfo.Length > 0) break; // Success! Data is there.
+
+                    await Task.Delay(1000); // Wait 1 second before checking again
+                    retryCount++;
+                }
+
+                // 3. Now ask the user to view
+                bool wantToView = await alertService.ConfirmAsync("Ledger saved. View file now?", AlertTypeList.Success);
+
+                if (wantToView)
+                {
+                    await FileLauncher.OpenFileAsync(result.FilePath, "application/pdf");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            alertService.Error("PDF Export Failed: " + ex.Message);
+        }
+        finally
+        {
+            _isPdfExporting = false;
+        }
+    }
+    
+    private async Task ExportToExcel()
+    {
+        _isExporting = true;
+        try
+        {
+            var exportData = FilteredHistory.Select(x => new
+            {
+                Date = x.TransactionDate.ToString("yyyy-MM-dd HH:mm"),
+                Invoice = x.InvoiceNumber,
+                Customer = x.CustomerName,
+                Total = x.NetAmount,
+                Paid = x.AmountPaid,
+                Balance = x.CreditBalance,
+                Status = x.PaymentStatus
+            }).ToList();
+
+            using var memoryStream = new MemoryStream();
+            await MiniExcel.SaveAsAsync(memoryStream, exportData);
+            memoryStream.Seek(0, SeekOrigin.Begin);
+
+            var fileName = GetDynamicFileName("xlsx");
+            var result = await FileSaver.SaveAsync(fileName, memoryStream, default);
+
+            if (result.IsSuccessful)
+            {
+                alertService.Notify("Export Successful! Opening file...");
+
+                try
+                {
+                    try
+                    {
+                        alertService.Notify("Opening...");
+                        await FileLauncher.OpenFileAsync(result.FilePath, "application/pdf");
+                    }
+                    catch (Exception ex)
+                    {
+                        alertService.Error("Could not open: " + ex.Message);
+                        alertService.Notify($"File saved to: {result.FilePath}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    alertService.Error("Could not open: " + ex.Message);
+                    // Fallback: Just notify them where it's saved
+                    alertService.Notify($"File saved to: {result.FilePath}");
+                }
+            }
+        }
+        catch (Exception ex) { alertService.Error("Export failed: " + ex.Message); }
+        finally { _isExporting = false; }
+    }
+
+    private async Task SyncBalances()
+    {
+        IsSyncing = true;
+        try
+        {
+            var customerIds = CreditHistory
+                .Where(x => x.CustomerId.HasValue)
+                .Select(x => x.CustomerId!.Value)
+                .Distinct();
+
+            foreach (var id in customerIds)
+            {
+                await CreditService.SyncCustomerDebtAsync(id);
+            }
+
+            await LoadData();
+            alertService.Notify("Balances Synced Successfully.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+            alertService.Error("Sync Failed: " + ex.Message);
+        }
+        finally { IsSyncing = false; }
+    }
+
+    private SaleModels? _selectedSale;
+    private bool _showDetailsModal;
+    private async Task ViewItems(SaleModels sale)
+    {
+        _selectedSale = sale;
+        if (_selectedSale != null)
+        {
+            _selectedSale.Items = await CreditService.GetItemsBySaleIdAsync(_selectedSale.Id);
+            _showDetailsModal = true;
+        }
+    }
+
+    private string GetDynamicFileName(string extension)
+    {
+        string datePart = DateTime.Now.ToString("yyyyMMdd");
+    
+        string filterPart = ActiveFilter == "All" ? "Full" : ActiveFilter;
+    
+        string cashierPart = SelectedCashier == "All" ? "" : $"_{SelectedCashier.Replace(" ", "_")}";
+
+        string searchPart = string.IsNullOrWhiteSpace(SearchTerm)
+           ? ""
+           : $"_{SearchTerm.Trim().Replace(" ", "_")}";
+
+        return $"CreditLedger_{filterPart}{cashierPart}{searchPart}_{datePart}.{extension}";
+    }
+}

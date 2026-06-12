@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:scanner="clr-namespace:BarcodeScanning;assembly=BarcodeScanning.Native.Maui"
+             x:Class="TCZPOS.Xaml.ScannerPage"
+             BackgroundColor="Black"
+             xmlns:helpers="clr-namespace:TCZPOS.Components.Extension"
+             NavigationPage.HasNavigationBar="False">
+
+    <Grid>
+        <scanner:CameraView 
+            x:Name="barcodeReader" 
+            OnDetectionFinished="BarcodesDetected"
+            AimMode="True"
+            VibrationOnDetected="False" 
+            ForceInverted="True"
+            
+            TapToFocusEnabled="True">
+        </scanner:CameraView>
+
+        <Grid InputTransparent="True">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="280" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="280" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <BoxView Grid.Row="0" Grid.ColumnSpan="3" Color="#AA000000" />
+            <BoxView Grid.Row="2" Grid.ColumnSpan="3" Color="#AA000000" />
+            <BoxView Grid.Row="1" Grid.Column="0" Color="#AA000000" />
+            <BoxView Grid.Row="1" Grid.Column="2" Color="#AA000000" />
+
+            <Grid Grid.Row="1" Grid.Column="1">
+                <BoxView WidthRequest="40" HeightRequest="3" Color="Cyan" HorizontalOptions="Start" VerticalOptions="Start" />
+                <BoxView WidthRequest="3" HeightRequest="40" Color="Cyan" HorizontalOptions="Start" VerticalOptions="Start" />
+                <BoxView WidthRequest="40" HeightRequest="3" Color="Cyan" HorizontalOptions="End" VerticalOptions="Start" />
+                <BoxView WidthRequest="3" HeightRequest="40" Color="Cyan" HorizontalOptions="End" VerticalOptions="Start" />
+                <BoxView WidthRequest="40" HeightRequest="3" Color="Cyan" HorizontalOptions="Start" VerticalOptions="End" />
+                <BoxView WidthRequest="3" HeightRequest="40" Color="Cyan" HorizontalOptions="Start" VerticalOptions="End" />
+                <BoxView WidthRequest="40" HeightRequest="3" Color="Cyan" HorizontalOptions="End" VerticalOptions="End" />
+                <BoxView WidthRequest="3" HeightRequest="40" Color="Cyan" HorizontalOptions="End" VerticalOptions="End" />
+
+                <BoxView x:Name="LaserLine" Color="#FF0044" HeightRequest="2" WidthRequest="260" 
+                         HorizontalOptions="Center" VerticalOptions="Start" />
+            </Grid>
+        </Grid>
+
+        <VerticalStackLayout x:Name="HelperLayout" VerticalOptions="Center" Margin="0,380,0,0" Spacing="15" InputTransparent="False">
+            <Label x:Name="InstructionLabel" Text="ALIGN BARCODE TO SCAN" TextColor="White" FontAttributes="Bold" 
+                   CharacterSpacing="2" FontSize="14" HorizontalOptions="Center" />
+
+            <Button x:Name="ManualInputBtn" Text="TYPE MANUALLY" Clicked="OnManualInputClicked"
+                    BackgroundColor="#40FFFFFF" TextColor="White" CornerRadius="20" 
+                    WidthRequest="180" HeightRequest="40" FontSize="11" />
+        </VerticalStackLayout>
+
+        <Grid VerticalOptions="Start" Margin="20,50" ColumnDefinitions="Auto, *, Auto, Auto">
+            <Button Text="{x:Static helpers:IconFont.Close}" 
+            FontFamily="MaterialIcons" 
+            Clicked="CloseClicked"
+            TextColor="White" BackgroundColor="#40000000" CornerRadius="25" HeightRequest="50" WidthRequest="50" />
+
+            <Button x:Name="ContinuousBtn" 
+            Grid.Column="2" 
+            Margin="0,0,10,0"
+            Text="AUTO" 
+            FontSize="10"
+            FontAttributes="Bold"
+            Clicked="ToggleContinuousMode" 
+            TextColor="White" BackgroundColor="#40000000" CornerRadius="25" HeightRequest="50" WidthRequest="50" />
+
+            <Button x:Name="TorchBtn" 
+            Grid.Column="3" 
+            Text="{x:Static helpers:IconFont.FlashOn}" 
+            FontFamily="MaterialIcons" 
+            Clicked="ToggleTorch" 
+            TextColor="White" BackgroundColor="#40000000" CornerRadius="25" HeightRequest="50" WidthRequest="50" />
+        </Grid>
+
+        <Border x:Name="BottomSheet" VerticalOptions="End" HeightRequest="320" BackgroundColor="White" TranslationY="350" IsVisible="False">
+            <Border.StrokeShape>
+                <RoundRectangle CornerRadius="40,40,0,0" />
+            </Border.StrokeShape>
+            <VerticalStackLayout Padding="30" Spacing="15">
+                <BoxView WidthRequest="40" HeightRequest="5" Color="#DDD" HorizontalOptions="Center" Margin="0,0,0,10"/>
+                <Label x:Name="PopupHeaderLabel" Text="IDENTIFIED" TextColor="Orange" FontAttributes="Bold" HorizontalOptions="Center" CharacterSpacing="2"/>
+                <Label x:Name="BarcodeResultLabel" 
+                       Text="---" 
+                       TextColor="Black" 
+                       FontSize="26" 
+                       FontAttributes="Bold" 
+                       HorizontalOptions="Center" 
+                       HorizontalTextAlignment="Center" 
+                       LineBreakMode="TailTruncation"
+                       MaxLines="1" 
+                       HeightRequest="40"
+                       VerticalOptions="Center" />
+                <Grid ColumnDefinitions="*, *" ColumnSpacing="15" Margin="0,20,0,0">
+                    <Button Grid.Column="0" Text="CANCEL" Clicked="ClosePopup" BackgroundColor="#F5F5F5" TextColor="#666" CornerRadius="15" HeightRequest="55"/>
+                    <Button Grid.Column="1" x:Name="ConfirmBtn" Text="CONFIRM" Clicked="HandleConfirmation" BackgroundColor="#FFD700" TextColor="Black" CornerRadius="15" HeightRequest="55" FontAttributes="Bold"/>
+                </Grid>
+            </VerticalStackLayout>
+        </Border>
+    </Grid>
+</ContentPage>

@@ -1,0 +1,178 @@
+﻿@page "/auth/login"
+@using Microsoft.AspNetCore.Authorization
+@using TCZPOS.Components.Services
+@using TCZPOS.Components.Guard.Interface
+@inject TCZPOS.Components.Providers.AuthStateProvider AuthProvider
+@inject UserServices UserService
+@inject IGatekeeperService Gatekeeper
+@inject NavigationManager NavManager
+@layout AuthLayout
+@attribute [AllowAnonymous]
+
+<div class="flex flex-col items-center justify-center min-h-screen px-4 bg-[#1a252f]">
+    
+    @* The 'Constraint' Wrapper: max-w-md on desktop, responsive on mobile *@
+    <div class="w-full max-w-[440px] transition-all duration-300">
+        
+        @* Main Card *@
+        <div class="bg-[#1a252f] sm:rounded-2xl sm:border sm:border-gray-700/50 sm:shadow-2xl  p-6 sm:p-10">
+            
+            @* Brand Logo Area *@
+            <div class="mb-10 text-center">
+                <div class="flex items-center justify-center gap-3 mb-2">
+                    <div class="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-900/20">
+                        <i class="fas fa-cube text-white text-xl"></i>
+                    </div>
+                    <h1 class="text-2xl font-black tracking-tighter text-white uppercase italic">
+                        TCZ-<span class="text-orange-500">POS</span>
+                    </h1>
+                </div>
+                <p class="text-[10px] tracking-[0.4em] text-gray-500 uppercase font-bold">Terminal Authentication</p>
+            </div>
+
+            <EditForm Model="this" OnValidSubmit="HandleLogin">
+                @* Username *@
+                <div class="mb-5">
+                    <label class="mb-2 block font-bold tracking-widest text-[10px] text-gray-400 uppercase">Username</label>
+                    <div class="relative flex items-center">
+                        <i class="fas fa-user absolute left-4 text-gray-500 text-sm"></i>
+                        <input type="text" @bind="username" placeholder="Enter username"
+                               class="w-full rounded-xl border border-gray-700 bg-[#252D37] pl-12 pr-4 py-4 text-sm text-white transition-all focus:border-orange-500 focus:ring-1 focus:ring-orange-500/50 focus:outline-none placeholder:text-gray-600" />
+                    </div>
+                </div>
+
+                @* Password *@
+                <div class="mb-8">
+                    <label class="mb-2 block font-bold tracking-widest text-[10px] text-gray-400 uppercase">Password</label>
+                    <div class="relative flex items-center">
+                        <i class="fas fa-lock absolute left-4 text-gray-500 text-sm"></i>
+                        <input type="password" @bind="password" placeholder="••••••••"
+                               class="w-full rounded-xl border border-gray-700 bg-[#252D37] pl-12 pr-4 py-4 text-sm text-white transition-all focus:border-orange-500 focus:ring-1 focus:ring-orange-500/50 focus:outline-none placeholder:text-gray-600" />
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="mb-6 flex items-center gap-3 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-[11px] text-red-400 uppercase tracking-wider font-bold animate-in fade-in slide-in-from-top-2">
+                        <i class="fas fa-circle-exclamation"></i>
+                        <span>@errorMessage</span>
+                    </div>
+                }
+
+                @* Sign In Button *@
+                <button type="submit" disabled="@isProcessing"
+                        class="w-full rounded-xl bg-orange-600 py-4 text-xs font-black tracking-[0.3em] text-white uppercase transition-all hover:bg-orange-500 hover:shadow-[0_0_30px_rgba(234,88,12,0.3)] active:scale-[0.97] disabled:opacity-50">
+                    @if (isProcessing)
+                    {
+                        <div class="flex items-center justify-center gap-3">
+                            <i class="fas fa-circle-notch fa-spin"></i>
+                            <span>Authenticating</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <span>Secure Sign In</span>
+                    }
+                </button>
+            </EditForm>
+
+            @* Footer Link with separator *@
+            <div class="mt-8 pt-6 border-t border-gray-700/50 text-center">
+                <p class="text-[10px] text-gray-500 uppercase tracking-[0.2em]">
+                    Manage your account via <br class="sm:hidden" />
+                    <a href="https://your-web-portal.com" target="_blank" class="text-orange-500 hover:text-orange-400 font-black transition-colors underline underline-offset-8">
+                        Official Web Portal
+                    </a>
+                </p>
+            </div>
+        </div>
+        
+        <p class="mt-8 text-center text-[9px] text-gray-600 uppercase tracking-[0.4em] font-bold">
+            TCZPOS Terminal v1.0 • Magallanes
+        </p>
+    </div>
+</div>
+
+@code {
+    private string username = "";
+    private string password = "";
+    private string errorMessage = "";
+    private bool isProcessing = false;
+
+    private async Task HandleLogin()
+    {
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        {
+            errorMessage = "Credentials required";
+            return;
+        }
+
+        errorMessage = "";
+        isProcessing = true;
+
+        // Small delay to show the nice loading state to the user
+        await Task.Delay(500);
+
+        var success = await UserService.LoginAsync(username, password);
+
+        if (success)
+        {
+            if (await UserService.IsSubscriptionValidAsync())
+            {
+                var masterAccount = await UserService.GetMasterAccountAsync();
+                if (masterAccount != null)
+                {
+                    Gatekeeper.InitializeMasterAccount(masterAccount);
+                    AuthProvider.NotifyUserLogin(username);
+                    Console.WriteLine($"Gate Status: {masterAccount.IsStaffGateEnabled}");
+                    if (!masterAccount.IsStaffGateEnabled)
+                    {
+                        await Gatekeeper.AuthenticateAsOwner(masterAccount);
+                        AuthProvider.NotifyUserLogin(username, "Owner");
+
+                        await SecureStorage.Default.SetAsync("IsLoggedIn", "true");
+                        await SecureStorage.Default.SetAsync("LoggedUser", username);
+                        await SecureStorage.Default.SetAsync("UserRole", "Owner");
+
+                        NavManager.NavigateTo("/");
+                    }
+                    else
+                    {
+                        NavManager.NavigateTo("/auth/access-portal");
+                    }
+                }
+                else
+                {
+                    errorMessage = "Account initialization failed.";
+                }
+            }
+            else
+            {
+                errorMessage = "Subscription Expired";
+            }
+        }
+        else
+        {
+            errorMessage = "Invalid Credentials";
+        }
+
+        isProcessing = false;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        if (authState.User.Identity?.IsAuthenticated ?? false)
+        {
+            // If already logged in, skip login page and go to portal or home
+            if (Gatekeeper.ActiveStaff == null)
+            {
+                NavManager.NavigateTo("/auth/access-portal");
+            }
+            else
+            {
+                NavManager.NavigateTo("/");
+            }
+        }
+    }
+}

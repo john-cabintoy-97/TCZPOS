@@ -1,0 +1,110 @@
+﻿@using TCZPOS.Components.Modules
+@using TCZPOS.Components.Services
+@inject ScannerNativeServices Scanner
+@inject AlertServices Alert
+
+<button @onclick="HandleClick"
+        disabled="@(!IsEnabled || isScanning)"
+        class="group flex transition-all disabled:opacity-40 disabled:grayscale enabled:active:scale-95 @GetVariantClasses() @CustomClass">
+
+    <div class="flex h-10 w-10 flex-none items-center justify-center rounded-xl @IconBg @IconText">
+        @if (isScanning)
+        {
+            <div class="spinner-border spinner-border-sm text-light" role="status"></div>
+        }
+        else if (CustomIcon != null)
+        {
+            @CustomIcon
+        }
+        else
+        {
+            <i class="@Icon @(Variant == ButtonVariant.Sidebar ? "text-xs" : "text-lg")"></i>
+        }
+    </div>
+
+    @if (Variant != ButtonVariant.IconOnly)
+    {
+        <div class="flex flex-col @(Variant == ButtonVariant.Grid ? "items-center mt-1" : "text-left ml-4")">
+            @if (!string.IsNullOrEmpty(Shortcut))
+            {
+                <span class="text-[10px] font-bold uppercase text-slate-500">@Shortcut</span>
+            }
+            <span class="text-xs font-black uppercase @LabelBg whitespace-nowrap">
+                @(isScanning ? "Scanning..." : Label)
+            </span>
+        </div>
+    }
+</button>
+
+@code {
+    [Parameter] public EventCallback OnManualEntryRequested { get; set; }
+    [Parameter] public bool ShowManual { get; set; } = true; 
+    [Parameter] public string ScanMode { get; set; } = "BARCODE"; 
+    [Parameter] public EventCallback<string> OnScanResult { get; set; }
+
+    // --- REUSED BUTTON PARAMETERS ---
+    [Parameter] public ButtonVariant Variant { get; set; } = ButtonVariant.Sidebar;
+    [Parameter] public string Icon { get; set; } = "fas fa-barcode";
+    [Parameter] public string IconBg { get; set; } = "bg-blue-600";
+    [Parameter] public string IconText { get; set; } = "text-white";
+    [Parameter] public string Label { get; set; } = "Scan";
+    [Parameter] public string LabelBg { get; set; } = "text-white";
+    [Parameter] public string Shortcut { get; set; } = "";
+    [Parameter] public bool IsEnabled { get; set; } = true;
+    [Parameter] public RenderFragment? CustomIcon { get; set; }
+    
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private bool isScanning = false;
+
+    private async Task HandleClick()
+    {
+        if (isScanning) return;
+
+        isScanning = true;
+        StateHasChanged();
+
+        try
+        {
+            // Trigger the native XAML Scanner we built earlier
+            var code = await Scanner.ReadBarcodeAsync(ScanMode, ShowManual);
+
+            if (code == "[MANUAL_INPUT]")
+            {
+                // Trigger the manual input UI in your parent page
+                if (OnManualEntryRequested.HasDelegate)
+                    await OnManualEntryRequested.InvokeAsync();
+            }
+            else if (!string.IsNullOrEmpty(code))
+            {
+                // Return the result to the parent component
+                await OnScanResult.InvokeAsync(code);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+            Alert.Error("Scanner Error");
+        }
+        finally
+        {
+            isScanning = false;
+            StateHasChanged();
+        }
+    }
+
+    // --- REUSED LAYOUT LOGIC ---
+    private string CustomClass => AdditionalAttributes != null && AdditionalAttributes.TryGetValue("class", out var c) ? c.ToString() ?? "" : "";
+
+    private string GetVariantClasses()
+    {
+        bool hasCustom = !string.IsNullOrEmpty(CustomClass);
+        return Variant switch
+        {
+            ButtonVariant.Grid => $"flex-col items-center justify-center rounded-xl {(hasCustom ? "" : "p-3 bg-slate-800 border border-slate-700")}",
+            ButtonVariant.IconOnly => $"items-center justify-center rounded-lg {(hasCustom ? "" : "p-2 bg-slate-800/50")}",
+            _ => $"items-center gap-0 rounded-2xl border border-slate-700/50 p-4 w-full hover:bg-slate-700 {(hasCustom ? "" : "bg-slate-800/50")}"
+        };
+    }
+}

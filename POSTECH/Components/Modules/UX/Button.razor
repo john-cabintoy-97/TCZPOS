@@ -1,0 +1,68 @@
+﻿<button @onclick="OnClick"
+        disabled="@(!IsEnabled)"
+        @attributes="FilteredAttributes"
+        class="group flex transition-all disabled:opacity-40 disabled:grayscale enabled:active:scale-95 @GetVariantClasses() @CustomClass">
+
+    @* ICON CONTAINER *@
+    <div class="flex h-10 w-10 flex-none items-center justify-center rounded-xl @IconBg @IconText">
+        @if (CustomIcon != null)
+        {
+            @CustomIcon
+        }
+        else
+        {
+            <i class="@Icon @(Variant == ButtonVariant.Sidebar ? "text-xs" : "text-lg")"></i>
+        }
+    </div>
+
+    @* TEXT CONTENT *@
+    @if (Variant != ButtonVariant.IconOnly)
+    {
+        <div class="flex flex-col @(Variant == ButtonVariant.Grid ? "items-center mt-1" : "text-left ml-4")">
+            @if (!string.IsNullOrEmpty(Shortcut))
+            {
+                <span class="text-[10px] font-bold uppercase text-slate-500">@Shortcut</span>
+            }
+            <span class="text-xs font-black uppercase @LabelBg whitespace-nowrap">@Label</span>
+        </div>
+    }
+    @ChildContent
+</button>
+
+@code {
+    [Parameter] public ButtonVariant Variant { get; set; } = ButtonVariant.Sidebar;
+    [Parameter] public string Icon { get; set; } = "";
+    [Parameter] public string IconBg { get; set; } = "";
+    [Parameter] public string IconText { get; set; } = "text-white";
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public string LabelBg { get; set; } = "text-white";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string Shortcut { get; set; } = "";
+    [Parameter] public bool IsEnabled { get; set; } = true;
+    [Parameter] public RenderFragment? CustomIcon { get; set; }
+    [Parameter] public EventCallback OnClick { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? AdditionalAttributes { get; set; }
+    private IEnumerable<KeyValuePair<string, object>>? FilteredAttributes =>
+    AdditionalAttributes?.Where(x => x.Key != "class");
+    // This is the key: we extract the 'class' string from the attributes
+    private string CustomClass =>
+        AdditionalAttributes != null && AdditionalAttributes.TryGetValue("class", out var c)
+        ? c.ToString() ?? ""
+        : "";
+
+    private string GetVariantClasses()
+    {
+        bool hasCustom = !string.IsNullOrEmpty(CustomClass);
+
+        return Variant switch
+        {
+            // If hasCustom is true, we ONLY provide the layout (flex-col)
+            // and leave the background/padding to the CustomClass
+            ButtonVariant.Grid => $"flex-col items-center justify-center rounded-xl {(hasCustom ? "" : "p-3 bg-slate-800 border border-slate-700")}",
+            ButtonVariant.IconOnly => $"items-center justify-center rounded-lg {(hasCustom ? "" : "p-2 bg-slate-800/50")}",
+            _ => $"items-center gap-0 rounded-2xl border border-slate-700/50 p-4 w-full hover:bg-slate-700 {(hasCustom ? "" : "bg-slate-800/50")}"
+        };
+    }
+}

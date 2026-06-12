@@ -1,0 +1,261 @@
+﻿@page "/auth/access-portal"
+@using TCZPOS.Components.Models
+@using TCZPOS.Components.Guard.Interface
+@inject IGatekeeperService Gatekeeper
+@inject IUserRepositories UserService
+@inject IStaffRepository StaffRepo
+@inject NavigationManager NavManager
+@inject AlertServices Alert
+@inject HardwareServices hardwareServices;
+@using Microsoft.AspNetCore.Components.Authorization;
+@inject AuthenticationStateProvider AuthProvider
+@inject AuthStateProvider CustomAuthStateProvider
+@inject IJSRuntime JS
+@layout AuthLayout
+
+<div class="flex flex-col items-center justify-center min-h-screen px-4 bg-[#1a252f] outline-none" @onkeydown="HandleKeyDown" tabindex="0">
+    <div class="w-full max-w-[480px]">
+        
+        @if (selectedRole == null)
+        {
+            @* --- STEP 1: ROLE SELECTION --- *@
+            <div class="mb-5  text-center">
+                <h2 class="text-3xl mt-5 font-black text-white uppercase tracking-tighter sm:text-4xl">Terminal Access</h2>
+                <p class="text-[10px] text-gray-500 uppercase tracking-[0.4em] mt-3 font-bold">Select Duty Role</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 sm:gap-6">
+         @foreach (StaffRole role in Enum.GetValues(typeof(StaffRole)))
+         {
+             <button @onclick="() => selectedRole = role"
+                     class="group relative flex flex-col items-center justify-center p-5 sm:p-8 rounded-2xl sm:rounded-3xl  border border-gray-700/50 hover:border-orange-500/50 hover:bg-[#252D37] transition-all active:scale-95 shadow-2xl">
+                
+                 @* Icon Container: Balanced for 2-column mobile view *@
+                 <div class="mb-3 sm:mb-5 flex h-12 w-12 sm:h-16 sm:w-16 items-center justify-center rounded-xl sm:rounded-2xl bg-slate-200
+                     text-gray-400
+                    
+                     transition-all shadow-inner">
+                     <i class="@GetRoleIcon(role) text-lg sm:text-2xl"></i>
+                 </div>
+                
+                 <span class="text-[10px] sm:text-xs font-black uppercase tracking-[0.1em] sm:tracking-[0.2em]
+                     text-gray-300
+                     group-hover:text-white
+                     group-active:text-white text-center">
+                     @role.ToString()
+                 </span>
+                                      
+                 @* Status Dot *@
+                 <div class="absolute top-3 right-3 h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-gray-800 group-hover:bg-orange-500 shadow-sm"></div>
+             </button>
+         }
+     </div>
+
+            @* Visual Divider (Safety Barrier) *@
+            <div class="mt-8 mb-6 flex items-center gap-6 opacity-40">
+                <div class="h-[1px] flex-1 bg-gradient-to-r from-transparent via-gray-600 to-transparent"></div>
+                <span class="text-[8px] font-black text-gray-500 uppercase tracking-[0.5em] whitespace-nowrap">Security Options</span>
+                <div class="h-[1px] flex-1 bg-gradient-to-r from-transparent via-gray-600 to-transparent"></div>
+            </div>
+
+            @* Safe Logout Zone *@
+            <div class="flex justify-center pb-8">
+                <button @onclick='() => NavManager.NavigateTo("/auth/logout")'
+                        class="group flex items-center gap-4 px-10 py-5 rounded-2xl border border-red-500/10 bg-red-500/5  hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30 transition-all active:scale-95">
+                    <i class="fas fa-power-off text-red-100 text-sm group-hover:rotate-12 hover:text-red-700 transition-transform"></i>
+                    <span class="text-[11px] font-black uppercase tracking-[0.2em]">Logout Master Account</span>
+                </button>
+            </div>
+        }
+        else if (selectedStaff == null)
+        {
+            <div class="mb-8 text-center animate-in fade-in slide-in-from-bottom-4">
+                <button @onclick="() => selectedRole = null" class="mb-4 text-[10px] font-black uppercase tracking-widest text-orange-500">
+                    <i class="fas fa-arrow-left mr-2"></i> Back to Roles
+                </button>
+                <h2 class="text-2xl font-black text-white uppercase tracking-tighter">Select your name</h2>
+                <p class="text-[10px] text-gray-500 uppercase mt-2 font-bold tracking-widest">@selectedRole accounts</p>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 max-h-[400px] overflow-y-auto pr-2">
+                @foreach (var staff in staffList.Where(s => s.Role == selectedRole))
+                {
+                    <button @onclick="() => selectedStaff = staff"
+                            class="flex items-center justify-between p-5 rounded-2xl bg-[#1B222C] border border-gray-700/50 hover:border-orange-500 transition-all shadow-lg">
+                        <div class="flex items-center gap-4">
+                            <div class="h-10 w-10 rounded-full bg-orange-600 flex items-center justify-center text-white font-black text-sm">
+                                @staff.Name[0]
+                            </div>
+                            <span class="font-bold text-white uppercase tracking-tight">@staff.Name</span>
+                        </div>
+                        <i class="fas fa-chevron-right text-gray-600"></i>
+                    </button>
+                }
+            </div>
+        }
+        else
+        {
+            @* --- STEP 2: PIN ENTRY --- *@
+            <div class="sm:bg-[#1B222C] rounded-3xl sm:border sm:border-gray-700/50 p-8 sm:shadow-2xl animate-in fade-in zoom-in duration-300">
+                <div class="mb-8 text-center">
+                    <button @onclick="() => { selectedStaff = null; inputPin = string.Empty; }"
+                            class="mb-4 text-[10px] font-black uppercase tracking-widest text-orange-500">
+                        <i class="fas fa-arrow-left mr-2"></i> Not @selectedStaff.Name?
+                    </button>
+                    <h2 class="text-xl font-black text-white uppercase tracking-tighter">@selectedStaff.Name</h2>
+                    <p class="text-[10px] text-gray-500 uppercase tracking-[0.3em] mt-1">Enter Secret PIN</p>
+                </div>
+
+                @* PIN Dots *@
+                <div class="flex justify-center gap-4 mb-10">
+                    @for (int i = 0; i < 4; i++)
+                    {
+                        <div class="@(inputPin.Length > i ? "bg-orange-500 shadow-[0_0_15px_rgba(234,88,12,0.6)]" : "bg-gray-800") h-4 w-4 rounded-full transition-all duration-200"></div>
+                    }
+                </div>
+
+                @* Keypad *@
+                <div class="grid grid-cols-3 gap-4">
+                    @foreach (var key in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "C", "0", "OK" })
+                    {
+                        <button @onclick="() => HandleKey(key)"
+                                class="flex h-16 items-center justify-center rounded-2xl bg-[#252D37] text-lg font-bold text-white transition-all active:scale-90 hover:bg-gray-700 @(key == "OK" ? "bg-orange-600 hover:bg-orange-500 shadow-lg shadow-orange-900/20" : "")">
+                            @key
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private StaffRole? selectedRole;
+    private StaffModels? selectedStaff;
+    private List<StaffModels> staffList = new();
+    private string inputPin = "";
+
+    private string GetRoleIcon(StaffRole role) => role switch
+    {
+        StaffRole.Owner => "fas fa-crown text-amber-400",
+        StaffRole.Cashier => "fas fa-cash-register text-emerald-400",
+        StaffRole.Inventory => "fas fa-boxes text-sky-400",
+        _ => "fas fa-user text-slate-400"
+    };
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        string? keyToProcess = e.Key switch
+        {
+            "0" or "Numpad0" => "0",
+            "1" or "Numpad1" => "1",
+            "2" or "Numpad2" => "2",
+            "3" or "Numpad3" => "3",
+            "4" or "Numpad4" => "4",
+            "5" or "Numpad5" => "5",
+            "6" or "Numpad6" => "6",
+            "7" or "Numpad7" => "7",
+            "8" or "Numpad8" => "8",
+            "9" or "Numpad9" => "9",
+            "Enter" => "OK",
+            "Backspace" or "Escape" or "c" or "C" => "C",
+            _ => null
+        };
+
+        if (keyToProcess != null)
+        {
+            await HandleKey(keyToProcess);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var master = await UserService.GetMasterAccountAsync();
+        if (master != null)
+        {
+            Gatekeeper.InitializeMasterAccount(master);
+        
+            staffList = await StaffRepo.GetStaffByMasterAccountAsync(master.Id);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (selectedStaff != null)
+        {
+            try
+            {
+                await Task.Delay(50);
+                await JS.InvokeVoidAsync("eval", "document.getElementById('access-portal-container').focus()");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Focus failed: {ex.Message}");
+            }
+        }
+    }
+    
+
+    private async Task HandleKey(string key)
+    {
+        await hardwareServices.VibrateFeedback();
+    
+        if (key == "C")
+        {
+            inputPin = "";
+        }
+        else if (key == "OK")
+        {
+            await Submit();
+        }
+        else if (inputPin.Length < 4)
+        {
+            inputPin += key;
+        
+            if (inputPin.Length == 4)
+            {
+                await Submit();
+            }
+        }
+    }
+
+    private void RedirectByRole(StaffRole role)
+    {
+        string target = role switch
+        {
+            StaffRole.Cashier => "/pos/terminal",
+            StaffRole.Inventory => "/inventory/product",
+            _ => "/" 
+        };
+        NavManager.NavigateTo(target);
+    }
+
+    private async Task Submit()
+    {
+        var success = await Gatekeeper.AuthenticateStaff(selectedStaff!.Id, inputPin);
+
+        if (success && Gatekeeper.ActiveStaff is { } active)
+        {
+            if (active.Role != selectedRole)
+            {
+                inputPin = "";
+                Alert.Error("Unauthorized role access");
+                return;
+            }
+
+            // 3. Use the 'active' variable (it is guaranteed not to be null here)
+            await SecureStorage.Default.SetAsync("IsLoggedIn", "true");
+            await SecureStorage.Default.SetAsync("LoggedUser", active.Name);
+            await SecureStorage.Default.SetAsync("UserRole", active.Role.ToString());
+            CustomAuthStateProvider.NotifyUserLogin(active.Name, active.Role.ToString());
+
+            RedirectByRole(active.Role);
+        }
+        else
+        {
+            inputPin = "";
+            await hardwareServices.VibrateFeedback();
+            Alert.Error("Invalid PIN");
+        }
+    }
+}
