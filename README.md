@@ -1,6 +1,6 @@
 # TCZ-POS 🛒
 
-A lightweight, high-performance **Point of Sale (POS) and Queuing System** built using a cross-platform desktop and mobile hybrid architecture. 
+A lightweight, high-performance **Point of Sale (POS) ** built using a cross-platform desktop and mobile hybrid architecture. 
 
 TCZ-POS combines the native power of **.NET MAUI** with the rapid UI flexibility of **Blazor Hybrid** and **Tailwind CSS**.
 
