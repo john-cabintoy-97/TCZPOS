@@ -36,5 +36,5 @@ Before setting up the project, make sure you have the following installed:
 
 ### 1. Clone the Project
 ```bash
-git clone [https://github.com/john-cabintoy-97/tczpos.git](https://github.com/yourusername/tczpos.git)
+git clone https://github.com/john-cabintoy-97/TCZPOS.git
 cd tczpos
